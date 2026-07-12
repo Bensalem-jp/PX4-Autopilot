@@ -30,6 +30,7 @@ parameters:
                 10: Helicopter (tail ESC)
                 11: Helicopter (tail Servo)
                 12: Helicopter (Coaxial)
+                13: Diamond VTOL
             default: 0
 
         CA_METHOD:
@@ -527,6 +528,60 @@ parameters:
               which is mostly the case when the main rotor turns counter-clockwise.
           type: boolean
           default: 0
+
+        # Diamond VTOL louver parameters
+        CA_DIA_LVR_K:
+            description:
+                short: Louver yaw effectiveness coefficient
+                long: |
+                    Side force per unit fan thrust per radian of louver deflection.
+                    Validated range from CFD: 0.01-0.02 [N/(N*rad)].
+                    Yaw moment = k * T_current * y_arm * deflection_rad.
+            type: float
+            decimal: 4
+            min: 0.001
+            max: 0.1
+            default: 0.015
+
+        CA_DIA_LVR_MAX:
+            description:
+                short: Maximum louver deflection
+                long: |
+                    Maximum allowable louver vane deflection in radians.
+                    20 deg = 0.349 rad (CFD-validated usable range).
+            type: float
+            decimal: 3
+            unit: rad
+            min: 0.05
+            max: 0.785
+            default: 0.349
+
+        CA_DIA_FIW_ARM:
+            description:
+                short: FIW fan Y-arm distance from CG
+                long: |
+                    Distance from the center of gravity to each FIW lift fan
+                    in the body Y axis (FRD frame). Used for yaw moment calculation.
+            type: float
+            decimal: 3
+            unit: m
+            min: 0.05
+            max: 2.0
+            default: 0.325
+
+        CA_DIA_FIW_CT:
+            description:
+                short: FIW fan maximum thrust
+                long: |
+                    Maximum thrust of each FIW lift fan in Newtons.
+                    Used to denormalize motor setpoint to actual thrust for
+                    louver effectiveness scaling.
+            type: float
+            decimal: 1
+            unit: N
+            min: 1.0
+            max: 500.0
+            default: 80.0
 
         # Others
         CA_FAILURE_MODE:

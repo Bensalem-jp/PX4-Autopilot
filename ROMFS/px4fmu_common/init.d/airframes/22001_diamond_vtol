@@ -1,0 +1,94 @@
+#!/bin/sh
+#
+# @name Diamond BWB-FIW VTOL
+# @type VTOL Tiltrotor
+# @class VTOL
+#
+# @maintainer Diamond VTOL Project
+#
+# @board px4_fmu-v2 exclude
+# @board bitcraze_crazyflie exclude
+#
+
+. ${R}etc/init.d/rc.vtol_defaults
+
+# Diamond VTOL effectiveness with louver yaw vectoring
+param set-default CA_AIRFRAME 13
+
+# 4 rotors: 2 FIW lift fans + 2 cruise fans (with binary diverter tilt)
+param set-default CA_ROTOR_COUNT 4
+
+# Rotor 0: FIW left lift fan (aft of CG, left side in FRD)
+param set-default CA_ROTOR0_PX -0.10
+param set-default CA_ROTOR0_PY -0.325
+param set-default CA_ROTOR0_PZ 0.0
+param set-default CA_ROTOR0_AX 0.0
+param set-default CA_ROTOR0_AY 0.0
+param set-default CA_ROTOR0_AZ -1.0
+param set-default CA_ROTOR0_CT 6.5
+param set-default CA_ROTOR0_KM 0.05
+
+# Rotor 1: FIW right lift fan (aft of CG, right side in FRD)
+param set-default CA_ROTOR1_PX -0.10
+param set-default CA_ROTOR1_PY 0.325
+param set-default CA_ROTOR1_PZ 0.0
+param set-default CA_ROTOR1_AX 0.0
+param set-default CA_ROTOR1_AY 0.0
+param set-default CA_ROTOR1_AZ -1.0
+param set-default CA_ROTOR1_CT 6.5
+param set-default CA_ROTOR1_KM -0.05
+
+# Rotor 2: Left cruise fan (forward of CG, with diverter tilt)
+param set-default CA_ROTOR2_PX 0.15
+param set-default CA_ROTOR2_PY -0.10
+param set-default CA_ROTOR2_PZ 0.0
+param set-default CA_ROTOR2_AX 0.0
+param set-default CA_ROTOR2_AY 0.0
+param set-default CA_ROTOR2_AZ -1.0
+param set-default CA_ROTOR2_CT 6.5
+param set-default CA_ROTOR2_KM 0.05
+param set-default CA_ROTOR2_TILT 1
+
+# Rotor 3: Right cruise fan (forward of CG, with diverter tilt)
+param set-default CA_ROTOR3_PX 0.15
+param set-default CA_ROTOR3_PY 0.10
+param set-default CA_ROTOR3_PZ 0.0
+param set-default CA_ROTOR3_AX 0.0
+param set-default CA_ROTOR3_AY 0.0
+param set-default CA_ROTOR3_AZ -1.0
+param set-default CA_ROTOR3_CT 6.5
+param set-default CA_ROTOR3_KM -0.05
+param set-default CA_ROTOR3_TILT 2
+
+# Tilt servo 1: Left diverter (hover=down, cruise=forward)
+param set-default CA_SV_TL0_MINA 0
+param set-default CA_SV_TL0_MAXA 90
+param set-default CA_SV_TL0_TD 0
+param set-default CA_SV_TL0_CT 0
+
+# Tilt servo 2: Right diverter
+param set-default CA_SV_TL1_MINA 0
+param set-default CA_SV_TL1_MAXA 90
+param set-default CA_SV_TL1_TD 0
+param set-default CA_SV_TL1_CT 0
+
+# Control surfaces (elevons)
+param set-default CA_SV_CS_COUNT 2
+param set-default CA_SV_CS0_TYPE 5
+param set-default CA_SV_CS0_TRQ_R -0.5
+param set-default CA_SV_CS0_TRQ_P 0.5
+param set-default CA_SV_CS1_TYPE 6
+param set-default CA_SV_CS1_TRQ_R 0.5
+param set-default CA_SV_CS1_TRQ_P 0.5
+
+# Diamond louver parameters
+param set-default CA_DIA_LVR_K 0.015
+param set-default CA_DIA_LVR_MAX 0.349
+param set-default CA_DIA_FIW_ARM 0.325
+param set-default CA_DIA_FIW_CT 80.0
+
+# Transition
+param set-default VT_ARSP_TRANS 15
+param set-default VT_BT_TILT_DUR 0.5
+param set-default VT_FW_MIN_ALT 5
+param set-default VT_TYPE 1

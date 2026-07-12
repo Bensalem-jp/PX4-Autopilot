@@ -133,6 +133,9 @@ if(CONFIG_MODULES_VTOL_ATT_CONTROL)
 		13014_vtol_babyshark
 		13030_generic_vtol_quad_tiltrotor
 		13200_generic_vtol_tailsitter
+
+		# [22000, 22999] Custom VTOL
+		22001_diamond_vtol
 	)
 endif()
 
