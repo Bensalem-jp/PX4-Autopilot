@@ -84,6 +84,11 @@ param set CA_ROTOR3_KM 0.0
 param set CA_ROTOR3_TILT 2
 
 # --- Tilt servos (diverter valves, 0=hover/down .. 90=cruise/forward) ---
+# CA_SV_TL_COUNT is MANDATORY: default 0 silently drops both tilt
+# actuators, shifting the servo order to louvers=Servo1/2 and
+# elevons=Servo3/4 (caught by the G6-T3 static channel check: louver
+# yaw commands were routed into the env diverter, 61% hover diversion).
+param set CA_SV_TL_COUNT 2
 param set CA_SV_TL0_MINA 0
 param set CA_SV_TL0_MAXA 90
 param set CA_SV_TL0_TD 0
