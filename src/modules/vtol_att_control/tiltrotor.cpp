@@ -410,8 +410,17 @@ void Tiltrotor::fill_actuator_outputs()
 		_thrust_setpoint_0->xyz[2] = -collective_thrust_normalized_setpoint;
 	}
 
-	// Fixed wing output
-	if (!_param_vt_elev_mc_lock.get() || _vtol_mode != vtol_mode::MC_MODE) {
+	// Fixed wing output.
+	// Diamond: matrix-1 elevons stay LOCKED during P1. fw_att_control
+	// runs on garbage FW attitude setpoints in OFFBOARD (no FW
+	// guidance) and upstream forwards its torque UNWEIGHTED here in
+	// every non-MC mode -- dual control against the MC loops with the
+	// elevons at a qbar where they have real authority. Observed as a
+	// deterministic yaw-windup / fore-aft oscillation on the P1
+	// plateau (runs 13-17). P2 and FW keep stock behavior: they only
+	// happen past the groundspeed gate where FW control is legitimate.
+	if ((!_param_vt_elev_mc_lock.get() || _vtol_mode != vtol_mode::MC_MODE)
+	    && _vtol_mode != vtol_mode::TRANSITION_FRONT_P1) {
 		_torque_setpoint_1->xyz[0] = _vehicle_torque_setpoint_virtual_fw->xyz[0];
 		_torque_setpoint_1->xyz[1] = _vehicle_torque_setpoint_virtual_fw->xyz[1];
 		_torque_setpoint_1->xyz[2] = _vehicle_torque_setpoint_virtual_fw->xyz[2];
