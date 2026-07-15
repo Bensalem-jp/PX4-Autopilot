@@ -256,27 +256,16 @@ void Tiltrotor::update_transition_state()
 		_mc_roll_weight = 1.0f;
 		_mc_yaw_weight = 1.0f;
 
-		// Diamond: blend the roll authority by SPEED, never by time.
-		// Upstream faded MC roll on a timer when airspeed was invalid
-		// (min..openloop trans time): with no pitot, roll was handed to
-		// the FW controller at t=6 s while the vehicle still flew at
-		// ~3 m/s (elevon qbar ~7 Pa = no physical authority) -> 45 deg
-		// roll divergence in 4 s (GT run 10). Use the same speed source
-		// as the diamond completion condition: airspeed when finite,
-		// else EKF groundspeed; keep full MC roll if neither is valid.
-		float blend_speed = NAN;
-
-		if (_param_fw_use_airspd.get() && PX4_ISFINITE(_airspeed_validated->calibrated_airspeed_m_s)) {
-			blend_speed = _airspeed_validated->calibrated_airspeed_m_s;
-
-		} else if (_local_pos->v_xy_valid) {
-			blend_speed = sqrtf(_local_pos->vx * _local_pos->vx + _local_pos->vy * _local_pos->vy);
-		}
-
-		if (PX4_ISFINITE(blend_speed) && blend_speed >= getBlendAirspeed()) {
-			_mc_roll_weight = 1.0f - (blend_speed - getBlendAirspeed()) /
-					  (getTransitionAirspeed() - getBlendAirspeed());
-		}
+		// Diamond: MC keeps FULL roll authority through all of P1.
+		// Upstream blends roll toward the FW controller (by airspeed,
+		// or a timer without one) -- but the diamond P1 locks the
+		// matrix-1 elevons (no FW guidance in OFFBOARD), so any fade
+		// hands roll to a DEAD surface: observed as an uncontrolled
+		// bank -> 32 m-radius coordinated circle read as a yaw spiral
+		// (runs 18-20: yaw_rate = V/R at constant radius; the roll
+		// fade began exactly at VT_ARSP_BLEND = 8 m/s). Roll and yaw
+		// hand over only at P2/FW, past the groundspeed gate.
+		// (_mc_roll_weight stays at the 1.0 set above.)
 
 		// add minimum throttle for front transition
 		_thrust_transition = math::max(_thrust_transition, FRONTTRANS_THR_MIN);
