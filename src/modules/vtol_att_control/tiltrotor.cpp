@@ -215,16 +215,14 @@ void Tiltrotor::update_transition_state()
 
 		memcpy(_v_att_sp, _mc_virtual_att_sp, sizeof(vehicle_attitude_setpoint_s));
 
-		// Diamond OFFBOARD transitions: the FW virtual attitude setpoint
-		// only feeds roll_body here, and fw_pos_control publishes no
-		// virtual setpoint without an FW guidance goal (offboard MC).
-		// Upstream returned on a stale FW setpoint, which froze the
-		// whole transition schedule (tilt never ramped, quad-chute
-		// timeout). Keep the stock roll blend when fresh; fall back to
-		// the MC roll when stale instead of stalling.
-		if (_fw_virtual_att_sp->timestamp >= (now - 1_s)) {
-			_v_att_sp->roll_body = _fw_virtual_att_sp->roll_body;
-		}
+		// Diamond OFFBOARD transitions: roll_body stays MC (the memcpy
+		// above already took it). Upstream blends the FW virtual roll
+		// here -- but with no FW guidance in OFFBOARD, fw_att_control
+		// publishes FRESH garbage setpoints: blending its roll banked
+		// the vehicle 26 deg and flew it into the ground (run 21; the
+		// runs-18-20 'yaw spiral' was the same bank read through the
+		// roll-weight fade). Upstream also returned early on a stale
+		// FW setpoint -- dropped for the same reason.
 
 		_thrust_transition = -_mc_virtual_att_sp->thrust_body[2];
 
