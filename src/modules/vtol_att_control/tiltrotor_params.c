@@ -98,3 +98,49 @@ PARAM_DEFINE_FLOAT(VT_TRANS_P2_DUR, 0.5f);
  * @group VTOL Attitude Control
  */
 PARAM_DEFINE_FLOAT(VT_BT_TILT_DUR, 1.f);
+
+/**
+ * Diamond pitch-quiet gate: pitch angle threshold
+ *
+ * Front transition P1 holds the VT_TILT_TRANS plateau until |pitch|
+ * stays below this angle (and |pitch rate| below VT_DIA_PQ_RATE) for
+ * VT_DIA_PQ_T seconds. Only active when VT_DIA_PQ_T > 0.
+ *
+ * @unit deg
+ * @min 1.0
+ * @max 30.0
+ * @increment 0.5
+ * @decimal 1
+ * @group VTOL Attitude Control
+ */
+PARAM_DEFINE_FLOAT(VT_DIA_PQ_ANG, 5.f);
+
+/**
+ * Diamond pitch-quiet gate: pitch rate threshold
+ *
+ * See VT_DIA_PQ_ANG. Only active when VT_DIA_PQ_T > 0.
+ *
+ * @unit deg/s
+ * @min 1.0
+ * @max 90.0
+ * @increment 1
+ * @decimal 0
+ * @group VTOL Attitude Control
+ */
+PARAM_DEFINE_FLOAT(VT_DIA_PQ_RATE, 15.f);
+
+/**
+ * Diamond pitch-quiet gate: sustain window
+ *
+ * Seconds that pitch angle AND rate must stay below their thresholds
+ * before the front transition advances past the VT_TILT_TRANS plateau.
+ * 0 disables the gate (stock tiltrotor behavior).
+ *
+ * @unit s
+ * @min 0.0
+ * @max 10.0
+ * @increment 0.1
+ * @decimal 1
+ * @group VTOL Attitude Control
+ */
+PARAM_DEFINE_FLOAT(VT_DIA_PQ_T, 0.f);

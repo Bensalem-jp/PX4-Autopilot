@@ -55,6 +55,7 @@ ActuatorEffectivenessDiamondVTOL::ActuatorEffectivenessDiamondVTOL(ModuleParams 
 	_param_handles.ca_diamond_louver_max = param_find("CA_DIA_LVR_MAX");
 	_param_handles.ca_diamond_fiw_arm = param_find("CA_DIA_FIW_ARM");
 	_param_handles.ca_diamond_fiw_ct = param_find("CA_DIA_FIW_CT");
+	_param_handles.ca_diamond_fw_lift_fan_min = param_find("CA_DIA_FW_LF_MIN");
 
 	updateParams();
 	setFlightPhase(FlightPhase::HOVER_FLIGHT);
@@ -80,6 +81,10 @@ void ActuatorEffectivenessDiamondVTOL::updateParams()
 
 	if (_param_handles.ca_diamond_fiw_ct != PARAM_INVALID) {
 		param_get(_param_handles.ca_diamond_fiw_ct, &_param_fiw_ct);
+	}
+
+	if (_param_handles.ca_diamond_fw_lift_fan_min != PARAM_INVALID) {
+		param_get(_param_handles.ca_diamond_fw_lift_fan_min, &_param_fw_lift_fan_min);
 	}
 }
 
@@ -208,10 +213,19 @@ void ActuatorEffectivenessDiamondVTOL::updateSetpoint(const matrix::Vector<float
 				}
 			}
 
-			// In FW, directly use throttle sp for motors
+			// In FW, tiltable motors take the FW throttle directly.
+			// UNTILTABLE lift fans hold CA_DIA_FW_LF_MIN instead of
+			// tracking cruise throttle: the diamond wing carries only
+			// ~90 N at transition speed, so PX4's rotors-off FW
+			// assumption does not apply (T1 run-28: never hard-zero).
 			if (_flight_phase == FlightPhase::FORWARD_FLIGHT) {
 				for (int i = 0; i < _first_tilt_idx; ++i) {
-					actuator_sp(i) = tiltrotor_extra_controls.collective_thrust_normalized_setpoint;
+					if (_untiltable_motors & (1u << i)) {
+						actuator_sp(i) = _param_fw_lift_fan_min;
+
+					} else {
+						actuator_sp(i) = tiltrotor_extra_controls.collective_thrust_normalized_setpoint;
+					}
 				}
 			}
 		}

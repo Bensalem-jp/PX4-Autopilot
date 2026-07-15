@@ -133,6 +133,16 @@ param set VT_TILT_TRANS 0.35
 param set VT_BT_TILT_DUR 0.5
 param set VT_FW_MIN_ALT 5
 
+# --- T3-2 diamond transition extensions (fork params) ---
+# Pitch-quiet gate: hold the 0.35 plateau until |pitch| < 5 deg AND
+# |pitch rate| < 15 deg/s sustained 1.0 s (T1 stage-2 attitude gate).
+param set VT_DIA_PQ_ANG 5.0
+param set VT_DIA_PQ_RATE 15.0
+param set VT_DIA_PQ_T 1.0
+# FW lift-fan floor: wing carries ~90 N at 16.5 m/s; lift fans hold
+# 15% instead of tracking cruise throttle (T1 cruise trim ~0.195).
+param set CA_DIA_FW_LF_MIN 0.15
+
 # --- Airspeed source: groundspeed-based (no pitot in sim) ---
 param set SYS_HAS_NUM_ASPD 0
 param set ASPD_PRIMARY 0

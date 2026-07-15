@@ -123,6 +123,7 @@ void Tiltrotor::update_vtol_state()
 		case vtol_mode::MC_MODE:
 			// initialise a front transition
 			resetTransitionStates();
+			_pitch_quiet_since = 0;
 			_vtol_mode = vtol_mode::TRANSITION_FRONT_P1;
 			break;
 
@@ -428,5 +429,34 @@ float Tiltrotor::moveLinear(float start, float stop, float progress)
 
 bool Tiltrotor::isFrontTransitionCompletedBase()
 {
-	return VtolType::isFrontTransitionCompletedBase() && _tilt_control >= _param_vt_tilt_trans.get();
+	return VtolType::isFrontTransitionCompletedBase() && _tilt_control >= _param_vt_tilt_trans.get()
+	       && isPitchQuiet();
+}
+
+bool Tiltrotor::isPitchQuiet()
+{
+	const float quiet_window_s = _param_vt_dia_pq_t.get();
+
+	if (quiet_window_s <= 0.f) {
+		return true; // gate disabled (default): stock tiltrotor behavior
+	}
+
+	const Eulerf attitude(Quatf(_v_att->q));
+
+	vehicle_angular_velocity_s angular_velocity{};
+	_angular_velocity_sub.copy(&angular_velocity);
+
+	const bool quiet = fabsf(attitude.theta()) < math::radians(_param_vt_dia_pq_ang.get())
+			   && fabsf(angular_velocity.xyz[1]) < math::radians(_param_vt_dia_pq_rate.get());
+
+	if (!quiet) {
+		_pitch_quiet_since = 0;
+		return false;
+	}
+
+	if (_pitch_quiet_since == 0) {
+		_pitch_quiet_since = hrt_absolute_time();
+	}
+
+	return hrt_elapsed_time(&_pitch_quiet_since) > quiet_window_s * 1_s;
 }

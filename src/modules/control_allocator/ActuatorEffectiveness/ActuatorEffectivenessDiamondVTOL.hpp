@@ -133,6 +133,7 @@ private:
 		param_t ca_diamond_louver_max;
 		param_t ca_diamond_fiw_arm;
 		param_t ca_diamond_fiw_ct;
+		param_t ca_diamond_fw_lift_fan_min;
 	};
 
 	ParamHandles _param_handles{};
@@ -153,6 +154,10 @@ private:
 
 	/// FIW max thrust coefficient [N] used to denormalize motor setpoint
 	float _param_fiw_ct{80.0f};
+	// FW-mode floor for the UNTILTABLE lift fans (normalized 0..1).
+	// 0 = stock rotors-off behavior; the diamond airframe sets ~0.15
+	// because the wing carries only ~90 N at transition speed.
+	float _param_fw_lift_fan_min{0.0f};
 
 	// Tilt handling during motor spoolup
 	bool throttleSpoolupFinished();

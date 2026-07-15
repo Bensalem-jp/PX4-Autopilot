@@ -45,7 +45,9 @@
 #include <drivers/drv_hrt.h>
 
 #include <uORB/Publication.hpp>
+#include <uORB/Subscription.hpp>
 #include <uORB/topics/tiltrotor_extra_controls.h>
+#include <uORB/topics/vehicle_angular_velocity.h>
 
 class Tiltrotor : public VtolType
 {
@@ -91,8 +93,23 @@ private:
 	void blendThrottleDuringBacktransition(const float scale, const float target_throttle);
 	bool isFrontTransitionCompletedBase() override;
 
+	/**
+	 * Diamond pitch-quiet gate (T3-2): hold the P1 plateau (VT_TILT_TRANS)
+	 * until |pitch| and |pitch rate| stay below thresholds for a sustained
+	 * window. VT_DIA_PQ_T <= 0 disables the gate (stock behavior).
+	 * T1 sim finding: advancing tilt at the transition airspeed while the
+	 * pitch loop is still ringing tips the vehicle (run-25 signature).
+	 */
+	bool isPitchQuiet();
+
+	uORB::Subscription _angular_velocity_sub{ORB_ID(vehicle_angular_velocity)};
+	hrt_abstime _pitch_quiet_since{0};
+
 
 	DEFINE_PARAMETERS_CUSTOM_PARENT(VtolType,
+					(ParamFloat<px4::params::VT_DIA_PQ_ANG>) _param_vt_dia_pq_ang,
+					(ParamFloat<px4::params::VT_DIA_PQ_RATE>) _param_vt_dia_pq_rate,
+					(ParamFloat<px4::params::VT_DIA_PQ_T>) _param_vt_dia_pq_t,
 					(ParamFloat<px4::params::VT_TILT_MC>) _param_vt_tilt_mc,
 					(ParamFloat<px4::params::VT_TILT_TRANS>) _param_vt_tilt_trans,
 					(ParamFloat<px4::params::VT_TILT_FW>) _param_vt_tilt_fw,

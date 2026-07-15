@@ -583,6 +583,21 @@ parameters:
             max: 500.0
             default: 80.0
 
+        CA_DIA_FW_LF_MIN:
+            description:
+                short: Diamond FW lift-fan minimum throttle
+                long: |
+                    Normalized throttle floor the UNTILTABLE lift fans hold in
+                    fixed-wing mode instead of tracking cruise throttle. The
+                    diamond wing carries only ~90 N at transition speed, so the
+                    stock rotors-off FW assumption does not apply. 0 keeps the
+                    stock behavior.
+            type: float
+            decimal: 2
+            min: 0.0
+            max: 0.5
+            default: 0.0
+
         # Others
         CA_FAILURE_MODE:
             description:
