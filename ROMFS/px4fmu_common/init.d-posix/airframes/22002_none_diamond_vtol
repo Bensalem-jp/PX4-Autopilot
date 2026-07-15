@@ -131,7 +131,12 @@ param set VT_TYPE 1
 param set VT_ARSP_TRANS 15
 param set VT_TILT_TRANS 0.35
 param set VT_BT_TILT_DUR 0.5
-param set VT_FW_MIN_ALT 5
+# VT_FW_MIN_ALT 0 = DISABLED for SITL. The T3-0 value (5) mistranslated
+# the GT gate criterion 'alt LOSS < 5 m' into a minimum-altitude
+# quadchute: PX4 local altitude at the hover hold is only ~1.5 m
+# (EKF-origin relative), so P1 quad-chuted instantly (MinAltBreached)
+# and the tilt never ramped. Real-aircraft ops value TBD at bench.
+param set VT_FW_MIN_ALT 0
 
 # --- T3-2 diamond transition extensions (fork params) ---
 # Pitch-quiet gate: hold the 0.35 plateau until |pitch| < 5 deg AND
