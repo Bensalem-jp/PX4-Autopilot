@@ -288,7 +288,13 @@ void Tiltrotor::update_transition_state()
 		// spiral (run 18: yaw 26 -> 91 deg at ~11 deg/s while world
 		// velocity kept growing -- the 'fore-aft reversal' was pure
 		// frame rotation). q_d is rebuilt from the euler fields below.
+		// yaw_sp_move_rate must ALSO be zeroed: the copied MC virtual
+		// setpoint carries the rotating source's yaw-rate feedforward
+		// (~0.19 rad/s = the observed 11 deg/s), and mc_att_control's
+		// rate FF spins the vehicle regardless of the pinned q_d
+		// (run 19: identical spiral with yaw_body pinned alone).
 		_v_att_sp->yaw_body = _transition_start_yaw;
+		_v_att_sp->yaw_sp_move_rate = 0.f;
 
 	} else if (_vtol_mode == vtol_mode::TRANSITION_FRONT_P2) {
 		// the plane is ready to go into fixed wing mode, tilt the rotors forward completely
