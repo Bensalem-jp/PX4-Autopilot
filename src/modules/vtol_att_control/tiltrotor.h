@@ -104,6 +104,8 @@ private:
 
 	uORB::Subscription _angular_velocity_sub{ORB_ID(vehicle_angular_velocity)};
 	hrt_abstime _pitch_quiet_since{0};
+	// Heading captured at front-transition start (P1 yaw pin)
+	float _transition_start_yaw{0.f};
 
 
 	DEFINE_PARAMETERS_CUSTOM_PARENT(VtolType,

@@ -124,6 +124,7 @@ void Tiltrotor::update_vtol_state()
 			// initialise a front transition
 			resetTransitionStates();
 			_pitch_quiet_since = 0;
+			_transition_start_yaw = Eulerf(Quatf(_v_att->q)).psi();
 			_vtol_mode = vtol_mode::TRANSITION_FRONT_P1;
 			break;
 
@@ -279,6 +280,15 @@ void Tiltrotor::update_transition_state()
 
 		// add minimum throttle for front transition
 		_thrust_transition = math::max(_thrust_transition, FRONTTRANS_THR_MIN);
+
+		// Diamond: PIN the yaw setpoint to the transition-start heading.
+		// The incoming MC virtual attitude setpoint rotates its yaw with
+		// the velocity vector during the transition flight task, and a
+		// body-fixed thrust chasing a rotating nose is a divergent
+		// spiral (run 18: yaw 26 -> 91 deg at ~11 deg/s while world
+		// velocity kept growing -- the 'fore-aft reversal' was pure
+		// frame rotation). q_d is rebuilt from the euler fields below.
+		_v_att_sp->yaw_body = _transition_start_yaw;
 
 	} else if (_vtol_mode == vtol_mode::TRANSITION_FRONT_P2) {
 		// the plane is ready to go into fixed wing mode, tilt the rotors forward completely
