@@ -440,7 +440,31 @@ float Tiltrotor::moveLinear(float start, float stop, float progress)
 
 bool Tiltrotor::isFrontTransitionCompletedBase()
 {
-	return VtolType::isFrontTransitionCompletedBase() && _tilt_control >= _param_vt_tilt_trans.get()
+	// Diamond speed condition. The base implementation falls back to an
+	// OPEN-LOOP TIMER when airspeed is invalid -- and without a pitot,
+	// ASPD_PRIMARY=0 (groundspeed-minus-wind) stays NaN in MC flight
+	// because the EKF wind estimate never initializes before FW flight.
+	// Observed: P2 advanced at 1.2 m/s on the timer and the vehicle
+	// stalled at FW entry. Use the EKF groundspeed as the speed source
+	// when airspeed is unavailable; never advance on time alone (the
+	// VT_TRANS_TIMEOUT quad-chute remains the safety net).
+	const bool minimum_trans_time_elapsed =
+		_time_since_trans_start > getMinimumFrontTransitionTime();
+
+	float speed = NAN;
+
+	if (_param_fw_use_airspd.get()
+	    && PX4_ISFINITE(_airspeed_validated->calibrated_airspeed_m_s)) {
+		speed = _airspeed_validated->calibrated_airspeed_m_s;
+
+	} else if (_local_pos->v_xy_valid) {
+		speed = sqrtf(_local_pos->vx * _local_pos->vx + _local_pos->vy * _local_pos->vy);
+	}
+
+	const bool speed_condition = PX4_ISFINITE(speed) && speed >= getTransitionAirspeed();
+
+	return minimum_trans_time_elapsed && speed_condition
+	       && _tilt_control >= _param_vt_tilt_trans.get()
 	       && isPitchQuiet();
 }
 

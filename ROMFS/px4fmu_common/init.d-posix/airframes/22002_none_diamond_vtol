@@ -137,6 +137,9 @@ param set VT_BT_TILT_DUR 0.5
 # (EKF-origin relative), so P1 quad-chuted instantly (MinAltBreached)
 # and the tilt never ramped. Real-aircraft ops value TBD at bench.
 param set VT_FW_MIN_ALT 0
+# Plateau Fx ~6 N at hover trim -> ~0.5 m/s^2: 15 m/s needs ~30 s.
+# Default 15 s would quad-chute mid-acceleration.
+param set VT_TRANS_TIMEOUT 60
 
 # --- T3-2 diamond transition extensions (fork params) ---
 # Pitch-quiet gate: hold the 0.35 plateau until |pitch| < 5 deg AND
