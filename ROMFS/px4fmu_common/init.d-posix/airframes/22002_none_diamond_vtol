@@ -45,7 +45,11 @@ param set CA_ROTOR0_AX 0.0
 param set CA_ROTOR0_AY 0.0
 param set CA_ROTOR0_AZ -1.0
 param set CA_ROTOR0_CT 70.0
-param set CA_ROTOR0_KM 0.05
+# KM=0: ducted fans, plant models no spin reaction torque. Non-zero KM
+# makes the allocator route yaw to differential thrust (a FAKE path --
+# zero real yaw moment), starving the louver and driving a +/-16 deg
+# yaw limit cycle with M0-M3 antiphase swings. ALL yaw = louver columns.
+param set CA_ROTOR0_KM 0.0
 
 # Rotor 1: FIW Right lift fan
 param set CA_ROTOR1_PX -0.067
@@ -55,7 +59,7 @@ param set CA_ROTOR1_AX 0.0
 param set CA_ROTOR1_AY 0.0
 param set CA_ROTOR1_AZ -1.0
 param set CA_ROTOR1_CT 70.0
-param set CA_ROTOR1_KM -0.05
+param set CA_ROTOR1_KM 0.0
 
 # Rotor 2: Forward Left fan (diverter -> tilt servo 1)
 param set CA_ROTOR2_PX 0.348
@@ -65,7 +69,7 @@ param set CA_ROTOR2_AX 0.0
 param set CA_ROTOR2_AY 0.0
 param set CA_ROTOR2_AZ -1.0
 param set CA_ROTOR2_CT 20.0
-param set CA_ROTOR2_KM 0.05
+param set CA_ROTOR2_KM 0.0
 param set CA_ROTOR2_TILT 1
 
 # Rotor 3: Forward Right fan (diverter -> tilt servo 2)
@@ -76,7 +80,7 @@ param set CA_ROTOR3_AX 0.0
 param set CA_ROTOR3_AY 0.0
 param set CA_ROTOR3_AZ -1.0
 param set CA_ROTOR3_CT 20.0
-param set CA_ROTOR3_KM -0.05
+param set CA_ROTOR3_KM 0.0
 param set CA_ROTOR3_TILT 2
 
 # --- Tilt servos (diverter valves, 0=hover/down .. 90=cruise/forward) ---
@@ -145,34 +149,42 @@ param set COM_ARM_EKF_YAW 1.57
 param set COM_ARM_IMU_ACC 1.0
 param set COM_ARM_IMU_GYR 0.25
 
-# --- MC attitude/rate gains (loop-shaped, hover-validated) ---
-param set MC_ROLL_P 2.5
-param set MC_PITCH_P 2.0
-param set MC_YAW_P 2.5
-param set MC_ROLLRATE_K 3.54
+# --- MC attitude/rate gains (full-cascade loop-shaping, hover-validated) ---
+# Source of truth: isaac px4/airframes/22001_none_bwb_fiw (post-#130/#131).
+# Yaw attitude P lowered 1.5 -> 0.9: observed closed-loop zeta ~0.26
+# (G5 overshoot 43%). Lower outer-loop bandwidth raises damping.
+param set MC_ROLL_P 1.89
+param set MC_PITCH_P 1.89
+param set MC_YAW_P 0.9
+param set MC_ROLLRATE_K 3.60
 param set MC_ROLLRATE_P 0.15
-param set MC_ROLLRATE_I 0.05
+param set MC_ROLLRATE_I 0.041
 param set MC_ROLLRATE_D 0.003
 param set MC_PITCHRATE_K 2.68
 param set MC_PITCHRATE_P 0.15
-param set MC_PITCHRATE_I 0.03
+param set MC_PITCHRATE_I 0.041
 param set MC_PITCHRATE_D 0.002
-param set MC_YAWRATE_P 0.15
-param set MC_YAWRATE_I 0.10
+param set MC_YAWRATE_K 4.03
+param set MC_YAWRATE_P 0.25
+param set MC_YAWRATE_I 0.05
 
 # Transition-sized rate-integrator headroom (T1 finding: hover-sized
 # clamps pin against the ~1.5 Nm aero trim moment during transition)
 param set MC_PR_INT_LIM 1.0
 
-# --- Hover thrust fraction (physical: 107 N / 180 N) ---
-param set MPC_THR_HOVER 0.59
+# --- Hover thrust fraction (physical: 107 N / 180 N = 0.594) ---
+param set MPC_THR_HOVER 0.594
 param set MPC_THR_MAX 1.0
 
 # --- Velocity/position loop limits (hover-validated) ---
 param set MPC_TILTMAX_AIR 12
-param set MPC_XY_VEL_P_ACC 0.8
-param set MPC_XY_VEL_I_ACC 0.2
+param set MPC_XY_VEL_P_ACC 0.47
+param set MPC_XY_VEL_I_ACC 0.042
 param set MPC_XY_VEL_D_ACC 0.1
+param set MPC_Z_VEL_P_ACC 2.5
+param set MPC_Z_VEL_I_ACC 0.8
+param set MPC_XY_P 0.158
+param set MPC_Z_P 0.6
 param set MPC_XY_VEL_MAX 1.0
 param set MPC_Z_VEL_MAX_UP 1.0
 param set MPC_Z_VEL_MAX_DN 0.7

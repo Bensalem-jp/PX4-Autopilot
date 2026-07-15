@@ -41,7 +41,11 @@ param set CA_ROTOR0_AX 0.0
 param set CA_ROTOR0_AY 0.0
 param set CA_ROTOR0_AZ -1.0
 param set CA_ROTOR0_CT 70.0
-param set CA_ROTOR0_KM 0.05
+# KM=0: ducted fans, plant models no spin reaction torque. Non-zero KM
+# makes the allocator route yaw to differential thrust (a FAKE path --
+# zero real yaw moment), starving the louver and driving a +/-16 deg
+# yaw limit cycle with M0-M3 antiphase swings. ALL yaw = louver columns.
+param set CA_ROTOR0_KM 0.0
 
 # Rotor 1: FIW Right lift fan
 param set CA_ROTOR1_PX -0.067
@@ -51,7 +55,7 @@ param set CA_ROTOR1_AX 0.0
 param set CA_ROTOR1_AY 0.0
 param set CA_ROTOR1_AZ -1.0
 param set CA_ROTOR1_CT 70.0
-param set CA_ROTOR1_KM -0.05
+param set CA_ROTOR1_KM 0.0
 
 # Rotor 2: Forward Left fan
 param set CA_ROTOR2_PX 0.348
@@ -61,7 +65,7 @@ param set CA_ROTOR2_AX 0.0
 param set CA_ROTOR2_AY 0.0
 param set CA_ROTOR2_AZ -1.0
 param set CA_ROTOR2_CT 20.0
-param set CA_ROTOR2_KM 0.05
+param set CA_ROTOR2_KM 0.0
 
 # Rotor 3: Forward Right fan
 param set CA_ROTOR3_PX 0.348
@@ -71,7 +75,7 @@ param set CA_ROTOR3_AX 0.0
 param set CA_ROTOR3_AY 0.0
 param set CA_ROTOR3_AZ -1.0
 param set CA_ROTOR3_CT 20.0
-param set CA_ROTOR3_KM -0.05
+param set CA_ROTOR3_KM 0.0
 
 # --- Explicitly ZERO control surfaces (prevent stale elevon steal) ---
 # The ROMFS base airframe has CA_SV_CS_COUNT=2 with pitch effectiveness.
@@ -117,54 +121,50 @@ param set COM_ARM_EKF_YAW 1.57
 param set COM_ARM_IMU_ACC 1.0
 param set COM_ARM_IMU_GYR 0.25
 
-# --- Attitude/rate gains (analytically derived, reverted from e5fe76b) ---
-# e5fe76b bundled pitch gain bump (P 2.0->3.5, K 2.68->5.0, I 0.03->0.12)
-# alongside the mag body-rotation fix. Reverted to derived set.
-# Run 1 (pure revert): pitch 24.2 + yaw spiral to -68 deg
-# Run 2 (D 0.002->0.005 + LVR_K 0.020): pitch 24.8 + early termination
-# Both FAIL -- the pitch ramp 1.6->4.2->9.3->24 deg at t=4-11s is
-# gain-independent, indicating a plant-level pitch disturbance torque
-# that the allocator cannot counter. See analysis below.
-#
-# Plant: CT 70/70/20/20 [N], torque per unit cmd 8.08 Nm,
+# --- Attitude/rate gains (full-cascade loop-shaping, matched to test runner) ---
+# Derived from px4_full_cascade_loopshaping.md for CT 70/70/20/20 plant.
+# Plant: torque per unit cmd 8.08 Nm,
 #   plant_pitch = 10.54 rad/s^2 per unit, plant_yaw = 1.08 rad/s^2 per unit
-param set MC_ROLL_P 2.5
-param set MC_PITCH_P 2.0
-param set MC_YAW_P 2.5
-param set MC_ROLLRATE_K 3.54
+param set MC_ROLL_P 1.89
+param set MC_PITCH_P 1.89
+# Yaw attitude P lowered 1.5 -> 0.9: observed closed-loop zeta ~0.26
+# (G5 overshoot 43%, hold-engagement ring +/-7 deg decaying ~15 s).
+# Lower outer-loop bandwidth raises damping; louver rate loop unchanged.
+param set MC_YAW_P 0.9
+param set MC_ROLLRATE_K 3.60
 param set MC_ROLLRATE_P 0.15
-param set MC_ROLLRATE_I 0.05
+param set MC_ROLLRATE_I 0.041
 param set MC_ROLLRATE_D 0.003
 param set MC_PITCHRATE_K 2.68
 param set MC_PITCHRATE_P 0.15
-param set MC_PITCHRATE_I 0.03
+param set MC_PITCHRATE_I 0.041
 param set MC_PITCHRATE_D 0.002
-param set MC_YAWRATE_P 0.15
-param set MC_YAWRATE_I 0.10
+param set MC_YAWRATE_K 4.03
+param set MC_YAWRATE_P 0.25
+param set MC_YAWRATE_I 0.05
 
 # --- Hover thrust fraction (CRITICAL for altitude control) ---
 # Physical hover fraction = weight / max_thrust = 107 N / (2*70+2*20=180 N) = 0.594
 # PX4 default (0.5) under-thrusts -> vehicle loiters at ~0.1 m, scraping ground,
 # producing contact-dynamics attitude chaos that masks flight issues.
 # CT=6.5 era over-output masked this by inflating thrust at 0.5 fraction.
-param set MPC_THR_HOVER 0.59
+param set MPC_THR_HOVER 0.594
 param set MPC_THR_MAX 1.0
 
 # --- Velocity controller tuning for limited pitch authority ---
 # Default MPC_TILTMAX_AIR=45 deg is far too aggressive for this vehicle.
 # The forward fans (CT=20) have ~4x less authority than the lift fans (CT=70),
-# so pitch corrections must be small. Attitude-mode run showed pitch stays
-# under 9 deg when the velocity controller is bypassed, confirming this is
-# the cascade that drives divergence.
+# so pitch corrections must be small.
 param set MPC_TILTMAX_AIR 12
-param set MPC_XY_VEL_P_ACC 0.8
-param set MPC_XY_VEL_I_ACC 0.2
+param set MPC_XY_VEL_P_ACC 0.47
+param set MPC_XY_VEL_I_ACC 0.042
 param set MPC_XY_VEL_D_ACC 0.1
+param set MPC_Z_VEL_P_ACC 2.5
+param set MPC_Z_VEL_I_ACC 0.8
+param set MPC_XY_P 0.158
+param set MPC_Z_P 0.6
 
 # --- Outer-loop limits: match setpoints to plant bandwidth ---
-# Closing-run fix: residual vz after climb caused 2 m overshoot, PX4
-# position loop demanded aggressive corrections -> attitude beyond fan
-# bandwidth (actual 23-29 deg vs MPC_TILTMAX_AIR=12) -> oscillation crash.
 # Clip velocity/accel/jerk so PX4 never demands more than the plant can track.
 param set MPC_XY_VEL_MAX 1.0
 param set MPC_Z_VEL_MAX_UP 1.0
