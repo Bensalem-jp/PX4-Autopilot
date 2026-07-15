@@ -191,9 +191,12 @@ param set MC_YAWRATE_K 4.03
 param set MC_YAWRATE_P 0.25
 param set MC_YAWRATE_I 0.05
 
-# Transition-sized rate-integrator headroom (T1 finding: hover-sized
-# clamps pin against the ~1.5 Nm aero trim moment during transition)
-param set MC_PR_INT_LIM 1.0
+# Transition-sized rate-integrator headroom. T1 used 1.0 WITH a wing
+# trim feedforward; PX4 MC attitude mode has no trim FF, so the whole
+# aero pitch moment (~2+ Nm at 7 m/s, growing with qbar; probe run 15:
+# level attitude setpoint but the vehicle drifts nose-up and brakes)
+# must fit in the integrator.
+param set MC_PR_INT_LIM 3.0
 
 # --- Hover thrust fraction (physical: 107 N / 180 N = 0.594) ---
 param set MPC_THR_HOVER 0.594
