@@ -429,6 +429,26 @@ void Tiltrotor::fill_actuator_outputs()
 		_torque_setpoint_1->xyz[2] = _vehicle_torque_setpoint_virtual_fw->xyz[2];
 	}
 
+	// Diamond P1 yaw hold, applied directly at the torque output.
+	// Upstream v1.15 gates mc_att_control OFF during tiltrotor
+	// transitions (rates stale, louvers frozen; runs 18-23) and
+	// re-enabling it fed a constant 0.54 rad/s yaw-rate setpoint from
+	// an upstream source (run 25 probe) -- both paths leave P1 yaw
+	// unusable. Hold the transition-start heading with a P-D law on
+	// the same loop-shaped gains the hover louver runs (MC_YAW_P 0.9,
+	// MC_YAWRATE_K 4.03), bypassing the attitude/rate modules.
+	if (_vtol_mode == vtol_mode::TRANSITION_FRONT_P1) {
+		vehicle_angular_velocity_s ang_vel{};
+		_angular_velocity_sub.copy(&ang_vel);
+
+		const float yaw = Eulerf(Quatf(_v_att->q)).psi();
+		const float yaw_err = matrix::wrap_pi(_transition_start_yaw - yaw);
+		const float yaw_rate_sp = math::constrain(0.9f * yaw_err, -1.f, 1.f);
+		const float yaw_torque = 4.03f * (yaw_rate_sp - ang_vel.xyz[2]);
+
+		_torque_setpoint_0->xyz[2] = math::constrain(yaw_torque, -1.f, 1.f);
+	}
+
 	// publish tiltrotor extra controls
 	tiltrotor_extra_controls_s tiltrotor_extra_controls = {};
 	tiltrotor_extra_controls.collective_tilt_normalized_setpoint = _tilt_control;
