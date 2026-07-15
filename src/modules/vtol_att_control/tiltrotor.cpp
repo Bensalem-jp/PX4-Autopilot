@@ -207,13 +207,24 @@ void Tiltrotor::update_transition_state()
 	// we get attitude setpoint from a multirotor flighttask if altitude is controlled.
 	// in any other case the fixed wing attitude controller publishes attitude setpoint from manual stick input.
 	if (_v_control_mode->flag_control_climb_rate_enabled) {
-		// we need the incoming (virtual) attitude setpoints (both mc and fw) to be recent, otherwise return (means the previous setpoint stays active)
-		if (_mc_virtual_att_sp->timestamp < (now - 1_s) || _fw_virtual_att_sp->timestamp < (now - 1_s)) {
+		// we need a recent incoming (virtual) MC attitude setpoint, otherwise return (means the previous setpoint stays active)
+		if (_mc_virtual_att_sp->timestamp < (now - 1_s)) {
 			return;
 		}
 
 		memcpy(_v_att_sp, _mc_virtual_att_sp, sizeof(vehicle_attitude_setpoint_s));
-		_v_att_sp->roll_body = _fw_virtual_att_sp->roll_body;
+
+		// Diamond OFFBOARD transitions: the FW virtual attitude setpoint
+		// only feeds roll_body here, and fw_pos_control publishes no
+		// virtual setpoint without an FW guidance goal (offboard MC).
+		// Upstream returned on a stale FW setpoint, which froze the
+		// whole transition schedule (tilt never ramped, quad-chute
+		// timeout). Keep the stock roll blend when fresh; fall back to
+		// the MC roll when stale instead of stalling.
+		if (_fw_virtual_att_sp->timestamp >= (now - 1_s)) {
+			_v_att_sp->roll_body = _fw_virtual_att_sp->roll_body;
+		}
+
 		_thrust_transition = -_mc_virtual_att_sp->thrust_body[2];
 
 	} else {
