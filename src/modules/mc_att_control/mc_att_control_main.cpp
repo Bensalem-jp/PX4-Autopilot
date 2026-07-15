@@ -267,20 +267,8 @@ MulticopterAttitudeControl::Run()
 		// vehicle is a tailsitter in transition mode
 		const bool is_tailsitter_transition = (_vtol_tailsitter && _vtol_in_transition_mode);
 
-		// Diamond fork: tiltrotor front-transitions KEEP MC attitude
-		// authority. P1 rides the lift fans at low qbar; in OFFBOARD
-		// the FW controllers have no guidance and (diamond) no surface
-		// authority until the groundspeed gate. Upstream gates the MC
-		// attitude loop off for any non-tailsitter transition, leaving
-		// attitude uncontrolled on the plateau: stale rate setpoints,
-		// louvers frozen at 0, and an unopposed ~0.02 Nm fan-trim yaw
-		// torque spun the vehicle at up to 11 deg/s (runs 18-23; the
-		// vtol-published attitude setpoint was pinned yet never
-		// consumed).
-		const bool is_tiltrotor_transition = (_vtol && !_vtol_tailsitter && _vtol_in_transition_mode);
-
 		const bool run_att_ctrl = _vehicle_control_mode.flag_control_attitude_enabled && (is_hovering
-					  || is_tailsitter_transition || is_tiltrotor_transition);
+					  || is_tailsitter_transition);
 
 		if (run_att_ctrl) {
 
