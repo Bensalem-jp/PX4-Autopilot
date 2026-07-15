@@ -1,0 +1,181 @@
+#!/bin/sh
+#
+# @name Diamond BWB-FIW Phase 3 (hover + louver yaw vectoring)
+# @type Quadrotor x
+# @class Copter
+# @maintainer BWB Project Team
+#
+# Phase 3: hover test of DiamondVTOL effectiveness (CA_AIRFRAME=13)
+# with louver yaw vectoring. Uses mc_defaults for hover stability
+# (rc.vtol_defaults requires vtol_att_control which complicates hover-only test).
+#
+# IMPORTANT: Louver channels are NEGATED in mavlink_bridge.py to convert
+# PX4 FRD yaw convention (+Mz = nose right) to env FLU convention
+# (+Mz = nose left / CCW from above).
+#
+# HIL_ACTUATOR_CONTROLS packing (hover-only, NO tilt servos):
+#   controls[0-3] = Motors 0-3
+#   controls[4]   = Louver L servo -> env ch[5] (negated)
+#   controls[5]   = Louver R servo -> env ch[6] (negated)
+#   controls[6]   = Elevon L       -> env ch[3]
+#   controls[7]   = Elevon R       -> env ch[4]
+
+. ${R}etc/init.d/rc.mc_defaults
+
+# --- Diamond VTOL effectiveness class (ALL GEOMETRY FORCED) ---
+# CRITICAL: Use 'param set' (not set-default) for ALL allocation params.
+# Reason: param set-default does NOT override persisted values from prior
+# sessions.  The Python px4_airframe.py generator (CA_ROTOR_COUNT=3,
+# cruise-pusher layout) leaves stale geometry that silently excludes
+# forward fans from pitch allocation -- M2/M3 freeze at hover collective.
+param set CA_AIRFRAME 13
+
+# --- Control allocation: 4 lift rotors (FORCED) ---
+param set CA_ROTOR_COUNT 4
+
+# Rotor 0: FIW Left lift fan
+param set CA_ROTOR0_PX -0.067
+param set CA_ROTOR0_PY 0.325
+param set CA_ROTOR0_PZ 0.0
+param set CA_ROTOR0_AX 0.0
+param set CA_ROTOR0_AY 0.0
+param set CA_ROTOR0_AZ -1.0
+param set CA_ROTOR0_CT 70.0
+param set CA_ROTOR0_KM 0.05
+
+# Rotor 1: FIW Right lift fan
+param set CA_ROTOR1_PX -0.067
+param set CA_ROTOR1_PY -0.325
+param set CA_ROTOR1_PZ 0.0
+param set CA_ROTOR1_AX 0.0
+param set CA_ROTOR1_AY 0.0
+param set CA_ROTOR1_AZ -1.0
+param set CA_ROTOR1_CT 70.0
+param set CA_ROTOR1_KM -0.05
+
+# Rotor 2: Forward Left fan
+param set CA_ROTOR2_PX 0.348
+param set CA_ROTOR2_PY 0.115
+param set CA_ROTOR2_PZ 0.0
+param set CA_ROTOR2_AX 0.0
+param set CA_ROTOR2_AY 0.0
+param set CA_ROTOR2_AZ -1.0
+param set CA_ROTOR2_CT 20.0
+param set CA_ROTOR2_KM 0.05
+
+# Rotor 3: Forward Right fan
+param set CA_ROTOR3_PX 0.348
+param set CA_ROTOR3_PY -0.115
+param set CA_ROTOR3_PZ 0.0
+param set CA_ROTOR3_AX 0.0
+param set CA_ROTOR3_AY 0.0
+param set CA_ROTOR3_AZ -1.0
+param set CA_ROTOR3_CT 20.0
+param set CA_ROTOR3_KM -0.05
+
+# --- Explicitly ZERO control surfaces (prevent stale elevon steal) ---
+# The ROMFS base airframe has CA_SV_CS_COUNT=2 with pitch effectiveness.
+# In hover, elevons produce ZERO physical moment but the allocator routes
+# pitch demand to them on paper -> rotors starved. Force zero.
+param set CA_SV_CS_COUNT 0
+
+# --- Diamond louver yaw vectoring (FORCED) ---
+param set CA_DIA_LVR_K 0.015
+param set CA_DIA_LVR_MAX 0.349
+param set CA_DIA_FIW_ARM 0.325
+param set CA_DIA_FIW_CT 70.0
+
+# --- Output function mapping (FORCED) ---
+# Motors 101-104 + Louver servos 201-202 (first servo outputs, no tilts)
+param set PWM_MAIN_FUNC1 101
+param set PWM_MAIN_FUNC2 102
+param set PWM_MAIN_FUNC3 103
+param set PWM_MAIN_FUNC4 104
+param set PWM_MAIN_FUNC5 201
+param set PWM_MAIN_FUNC6 202
+
+# --- SITL bypass parameters (forced) ---
+param set COM_ARM_WO_GPS 1
+param set COM_RC_IN_MODE 4
+param set NAV_RCL_ACT 0
+param set NAV_DLL_ACT 0
+param set SYS_HAS_NUM_ASPD 0
+param set CBRK_SUPPLY_CHK 894281
+
+# Disable in-flight failsafe actions to let hover test run full duration
+param set COM_LOW_BAT_ACT 0
+param set FD_ACT_EN 0
+
+# Relax EKF2 preflight checks (SITL only)
+# COM_ARM_EKF_YAW raised to 1.57 (90 deg): with body-frame mag rotation
+# (Q-HIGH-1 fix), the EKF needs a wider initial convergence window.
+# The mag fix is correct -- this tolerance is belt-and-braces for SITL.
+param set COM_ARM_EKF_HGT 10.0
+param set COM_ARM_EKF_VEL 10.0
+param set COM_ARM_EKF_POS 10.0
+param set COM_ARM_EKF_YAW 1.57
+param set COM_ARM_IMU_ACC 1.0
+param set COM_ARM_IMU_GYR 0.25
+
+# --- Attitude/rate gains (analytically derived, reverted from e5fe76b) ---
+# e5fe76b bundled pitch gain bump (P 2.0->3.5, K 2.68->5.0, I 0.03->0.12)
+# alongside the mag body-rotation fix. Reverted to derived set.
+# Run 1 (pure revert): pitch 24.2 + yaw spiral to -68 deg
+# Run 2 (D 0.002->0.005 + LVR_K 0.020): pitch 24.8 + early termination
+# Both FAIL -- the pitch ramp 1.6->4.2->9.3->24 deg at t=4-11s is
+# gain-independent, indicating a plant-level pitch disturbance torque
+# that the allocator cannot counter. See analysis below.
+#
+# Plant: CT 70/70/20/20 [N], torque per unit cmd 8.08 Nm,
+#   plant_pitch = 10.54 rad/s^2 per unit, plant_yaw = 1.08 rad/s^2 per unit
+param set MC_ROLL_P 2.5
+param set MC_PITCH_P 2.0
+param set MC_YAW_P 2.5
+param set MC_ROLLRATE_K 3.54
+param set MC_ROLLRATE_P 0.15
+param set MC_ROLLRATE_I 0.05
+param set MC_ROLLRATE_D 0.003
+param set MC_PITCHRATE_K 2.68
+param set MC_PITCHRATE_P 0.15
+param set MC_PITCHRATE_I 0.03
+param set MC_PITCHRATE_D 0.002
+param set MC_YAWRATE_P 0.15
+param set MC_YAWRATE_I 0.10
+
+# --- Hover thrust fraction (CRITICAL for altitude control) ---
+# Physical hover fraction = weight / max_thrust = 107 N / (2*70+2*20=180 N) = 0.594
+# PX4 default (0.5) under-thrusts -> vehicle loiters at ~0.1 m, scraping ground,
+# producing contact-dynamics attitude chaos that masks flight issues.
+# CT=6.5 era over-output masked this by inflating thrust at 0.5 fraction.
+param set MPC_THR_HOVER 0.59
+param set MPC_THR_MAX 1.0
+
+# --- Velocity controller tuning for limited pitch authority ---
+# Default MPC_TILTMAX_AIR=45 deg is far too aggressive for this vehicle.
+# The forward fans (CT=20) have ~4x less authority than the lift fans (CT=70),
+# so pitch corrections must be small. Attitude-mode run showed pitch stays
+# under 9 deg when the velocity controller is bypassed, confirming this is
+# the cascade that drives divergence.
+param set MPC_TILTMAX_AIR 12
+param set MPC_XY_VEL_P_ACC 0.8
+param set MPC_XY_VEL_I_ACC 0.2
+param set MPC_XY_VEL_D_ACC 0.1
+
+# --- Outer-loop limits: match setpoints to plant bandwidth ---
+# Closing-run fix: residual vz after climb caused 2 m overshoot, PX4
+# position loop demanded aggressive corrections -> attitude beyond fan
+# bandwidth (actual 23-29 deg vs MPC_TILTMAX_AIR=12) -> oscillation crash.
+# Clip velocity/accel/jerk so PX4 never demands more than the plant can track.
+param set MPC_XY_VEL_MAX 1.0
+param set MPC_Z_VEL_MAX_UP 1.0
+param set MPC_Z_VEL_MAX_DN 0.7
+param set MPC_ACC_HOR_MAX 2.0
+param set MPC_ACC_UP_MAX 2.0
+param set MPC_ACC_DOWN_MAX 1.5
+param set MPC_JERK_MAX 5.0
+
+# Airmode: allow collective thrust increase to maintain pitch/roll authority.
+# Without airmode (0), desaturation only REDUCES thrust -- this starves pitch
+# when forward fans (low CT=20) are near their lower bound.
+# Mode 1 = Roll/Pitch priority (yaw can be sacrificed).
+param set MC_AIRMODE 1

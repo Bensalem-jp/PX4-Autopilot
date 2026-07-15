@@ -1,0 +1,185 @@
+#!/bin/sh
+#
+# @name Diamond BWB-FIW VTOL (T3 transition, SITL)
+# @type VTOL Tiltrotor
+# @class VTOL
+# @maintainer BWB Project Team
+#
+# T3: PX4 tiltrotor VTOL transition for the diamond airframe.
+# Composition = the HOVER-VALIDATED plant geometry/gains/bypasses from
+# 22001_none_diamond_vtol (full-cascade hover PASS, 2026-07-13) + the
+# VTOL machinery (tilt-bound cruise fans, elevons on the FW matrix,
+# VT_* schedule). The T1 sim campaign (G-T1 all gates, 2026-07-14)
+# fixed the transition schedule this airframe encodes:
+#   - VT_TILT_TRANS 0.35 = the validated partial-diverter plateau
+#   - VT_ARSP_TRANS 15   = the validated snap speed
+#   - lift fans must NOT be hard-zeroed at cruise entry (wing carries
+#     only ~90 N at 16.5 m/s) — Diamond updateSetpoint exception, T3-2
+#
+# PROVISIONAL output mapping (verify in T3-0 static channel check):
+# servo function order follows the DiamondVTOL actuator add order
+# (tilts -> louvers on matrix 0, elevons on matrix 1):
+#   controls[0-3] = Motors 0-3 (FIW L/R, Fwd L/R)
+#   controls[4]   = Tilt L   (Servo1)
+#   controls[5]   = Tilt R   (Servo2)
+#   controls[6]   = Louver L (Servo3, NEGATED in mavlink_bridge FRD->FLU)
+#   controls[7]   = Louver R (Servo4, negated)
+#   controls[8]   = Elevon L (Servo5)
+#   controls[9]   = Elevon R (Servo6)
+
+. ${R}etc/init.d/rc.vtol_defaults
+
+# --- Diamond VTOL effectiveness class (ALL GEOMETRY FORCED) ---
+# 'param set' (not set-default): set-default does not override values
+# persisted from prior sessions (hover-phase lesson).
+param set CA_AIRFRAME 13
+
+# --- Control allocation: 4 rotors, hover-validated physical values ---
+param set CA_ROTOR_COUNT 4
+
+# Rotor 0: FIW Left lift fan
+param set CA_ROTOR0_PX -0.067
+param set CA_ROTOR0_PY 0.325
+param set CA_ROTOR0_PZ 0.0
+param set CA_ROTOR0_AX 0.0
+param set CA_ROTOR0_AY 0.0
+param set CA_ROTOR0_AZ -1.0
+param set CA_ROTOR0_CT 70.0
+param set CA_ROTOR0_KM 0.05
+
+# Rotor 1: FIW Right lift fan
+param set CA_ROTOR1_PX -0.067
+param set CA_ROTOR1_PY -0.325
+param set CA_ROTOR1_PZ 0.0
+param set CA_ROTOR1_AX 0.0
+param set CA_ROTOR1_AY 0.0
+param set CA_ROTOR1_AZ -1.0
+param set CA_ROTOR1_CT 70.0
+param set CA_ROTOR1_KM -0.05
+
+# Rotor 2: Forward Left fan (diverter -> tilt servo 1)
+param set CA_ROTOR2_PX 0.348
+param set CA_ROTOR2_PY 0.115
+param set CA_ROTOR2_PZ 0.0
+param set CA_ROTOR2_AX 0.0
+param set CA_ROTOR2_AY 0.0
+param set CA_ROTOR2_AZ -1.0
+param set CA_ROTOR2_CT 20.0
+param set CA_ROTOR2_KM 0.05
+param set CA_ROTOR2_TILT 1
+
+# Rotor 3: Forward Right fan (diverter -> tilt servo 2)
+param set CA_ROTOR3_PX 0.348
+param set CA_ROTOR3_PY -0.115
+param set CA_ROTOR3_PZ 0.0
+param set CA_ROTOR3_AX 0.0
+param set CA_ROTOR3_AY 0.0
+param set CA_ROTOR3_AZ -1.0
+param set CA_ROTOR3_CT 20.0
+param set CA_ROTOR3_KM -0.05
+param set CA_ROTOR3_TILT 2
+
+# --- Tilt servos (diverter valves, 0=hover/down .. 90=cruise/forward) ---
+param set CA_SV_TL0_MINA 0
+param set CA_SV_TL0_MAXA 90
+param set CA_SV_TL0_TD 0
+param set CA_SV_TL0_CT 0
+param set CA_SV_TL1_MINA 0
+param set CA_SV_TL1_MAXA 90
+param set CA_SV_TL1_TD 0
+param set CA_SV_TL1_CT 0
+
+# --- Elevons (FW matrix in the Diamond class -> no MC pitch steal) ---
+# Real Cm_de 0.235/rad measured (diamond .stab, 2026-07-14).
+param set CA_SV_CS_COUNT 2
+param set CA_SV_CS0_TYPE 5
+param set CA_SV_CS0_TRQ_R -0.5
+param set CA_SV_CS0_TRQ_P 0.5
+param set CA_SV_CS1_TYPE 6
+param set CA_SV_CS1_TRQ_R 0.5
+param set CA_SV_CS1_TRQ_P 0.5
+
+# --- Diamond louver yaw vectoring (hover-validated) ---
+param set CA_DIA_LVR_K 0.015
+param set CA_DIA_LVR_MAX 0.349
+param set CA_DIA_FIW_ARM 0.325
+param set CA_DIA_FIW_CT 70.0
+
+# --- Output function mapping (PROVISIONAL, see header) ---
+param set PWM_MAIN_FUNC1 101
+param set PWM_MAIN_FUNC2 102
+param set PWM_MAIN_FUNC3 103
+param set PWM_MAIN_FUNC4 104
+param set PWM_MAIN_FUNC5 201
+param set PWM_MAIN_FUNC6 202
+param set PWM_MAIN_FUNC7 203
+param set PWM_MAIN_FUNC8 204
+param set PWM_MAIN_FUNC9 205
+param set PWM_MAIN_FUNC10 206
+
+# --- VTOL transition schedule (T1-validated) ---
+param set VT_TYPE 1
+param set VT_ARSP_TRANS 15
+param set VT_TILT_TRANS 0.35
+param set VT_BT_TILT_DUR 0.5
+param set VT_FW_MIN_ALT 5
+
+# --- Airspeed source: groundspeed-based (no pitot in sim) ---
+param set SYS_HAS_NUM_ASPD 0
+param set ASPD_PRIMARY 0
+
+# --- SITL bypass parameters (hover-validated) ---
+param set COM_ARM_WO_GPS 1
+param set COM_RC_IN_MODE 4
+param set NAV_RCL_ACT 0
+param set NAV_DLL_ACT 0
+param set CBRK_SUPPLY_CHK 894281
+param set COM_LOW_BAT_ACT 0
+param set FD_ACT_EN 0
+
+# --- EKF2 preflight relaxations (SITL only, hover-validated) ---
+param set COM_ARM_EKF_HGT 10.0
+param set COM_ARM_EKF_VEL 10.0
+param set COM_ARM_EKF_POS 10.0
+param set COM_ARM_EKF_YAW 1.57
+param set COM_ARM_IMU_ACC 1.0
+param set COM_ARM_IMU_GYR 0.25
+
+# --- MC attitude/rate gains (loop-shaped, hover-validated) ---
+param set MC_ROLL_P 2.5
+param set MC_PITCH_P 2.0
+param set MC_YAW_P 2.5
+param set MC_ROLLRATE_K 3.54
+param set MC_ROLLRATE_P 0.15
+param set MC_ROLLRATE_I 0.05
+param set MC_ROLLRATE_D 0.003
+param set MC_PITCHRATE_K 2.68
+param set MC_PITCHRATE_P 0.15
+param set MC_PITCHRATE_I 0.03
+param set MC_PITCHRATE_D 0.002
+param set MC_YAWRATE_P 0.15
+param set MC_YAWRATE_I 0.10
+
+# Transition-sized rate-integrator headroom (T1 finding: hover-sized
+# clamps pin against the ~1.5 Nm aero trim moment during transition)
+param set MC_PR_INT_LIM 1.0
+
+# --- Hover thrust fraction (physical: 107 N / 180 N) ---
+param set MPC_THR_HOVER 0.59
+param set MPC_THR_MAX 1.0
+
+# --- Velocity/position loop limits (hover-validated) ---
+param set MPC_TILTMAX_AIR 12
+param set MPC_XY_VEL_P_ACC 0.8
+param set MPC_XY_VEL_I_ACC 0.2
+param set MPC_XY_VEL_D_ACC 0.1
+param set MPC_XY_VEL_MAX 1.0
+param set MPC_Z_VEL_MAX_UP 1.0
+param set MPC_Z_VEL_MAX_DN 0.7
+param set MPC_ACC_HOR_MAX 2.0
+param set MPC_ACC_UP_MAX 2.0
+param set MPC_ACC_DOWN_MAX 1.5
+param set MPC_JERK_MAX 5.0
+
+# Airmode: roll/pitch priority (hover-validated)
+param set MC_AIRMODE 1
