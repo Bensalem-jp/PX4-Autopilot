@@ -255,17 +255,26 @@ void Tiltrotor::update_transition_state()
 		_mc_roll_weight = 1.0f;
 		_mc_yaw_weight = 1.0f;
 
-		if (_param_fw_use_airspd.get()  && PX4_ISFINITE(_airspeed_validated->calibrated_airspeed_m_s) &&
-		    _airspeed_validated->calibrated_airspeed_m_s >= getBlendAirspeed()) {
-			_mc_roll_weight = 1.0f - (_airspeed_validated->calibrated_airspeed_m_s - getBlendAirspeed()) /
-					  (getTransitionAirspeed()  - getBlendAirspeed());
+		// Diamond: blend the roll authority by SPEED, never by time.
+		// Upstream faded MC roll on a timer when airspeed was invalid
+		// (min..openloop trans time): with no pitot, roll was handed to
+		// the FW controller at t=6 s while the vehicle still flew at
+		// ~3 m/s (elevon qbar ~7 Pa = no physical authority) -> 45 deg
+		// roll divergence in 4 s (GT run 10). Use the same speed source
+		// as the diamond completion condition: airspeed when finite,
+		// else EKF groundspeed; keep full MC roll if neither is valid.
+		float blend_speed = NAN;
+
+		if (_param_fw_use_airspd.get() && PX4_ISFINITE(_airspeed_validated->calibrated_airspeed_m_s)) {
+			blend_speed = _airspeed_validated->calibrated_airspeed_m_s;
+
+		} else if (_local_pos->v_xy_valid) {
+			blend_speed = sqrtf(_local_pos->vx * _local_pos->vx + _local_pos->vy * _local_pos->vy);
 		}
 
-		// without airspeed do timed weight changes
-		if ((!_param_fw_use_airspd.get() || !PX4_ISFINITE(_airspeed_validated->calibrated_airspeed_m_s)) &&
-		    _time_since_trans_start > getMinimumFrontTransitionTime()) {
-			_mc_roll_weight = 1.0f - (_time_since_trans_start - getMinimumFrontTransitionTime()) /
-					  (getOpenLoopFrontTransitionTime() - getMinimumFrontTransitionTime());
+		if (PX4_ISFINITE(blend_speed) && blend_speed >= getBlendAirspeed()) {
+			_mc_roll_weight = 1.0f - (blend_speed - getBlendAirspeed()) /
+					  (getTransitionAirspeed() - getBlendAirspeed());
 		}
 
 		// add minimum throttle for front transition
