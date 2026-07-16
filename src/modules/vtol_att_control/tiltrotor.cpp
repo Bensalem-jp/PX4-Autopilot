@@ -440,6 +440,30 @@ void Tiltrotor::fill_actuator_outputs()
 	// accelerates on diverted Fx, not tilt); yaw holds the
 	// transition-start heading. Without the pitch hold the P2 diverter
 	// ramp's trim step ran pitch past 30 deg in 0.6 s (run 29).
+	// SYSTEM-ID PROBE (temporary): in MC hover, log the would-be
+	// roll/pitch P-D law outputs next to the live mc controller's
+	// virtual torques once per second. Signs/scales must match before
+	// the law may own P2 attitude (run 30 lesson).
+	if (_vtol_mode == vtol_mode::MC_MODE) {
+		static hrt_abstime last_probe = 0;
+
+		if (hrt_elapsed_time(&last_probe) > 1_s) {
+			last_probe = hrt_absolute_time();
+
+			vehicle_angular_velocity_s ang_vel{};
+			_angular_velocity_sub.copy(&ang_vel);
+			const Eulerf attitude(Quatf(_v_att->q));
+
+			const float roll_law = 3.60f * (math::constrain(1.89f * (0.f - attitude.phi()), -2.f, 2.f) - ang_vel.xyz[0]);
+			const float pitch_law = 2.68f * (math::constrain(1.89f * (0.f - attitude.theta()), -2.f, 2.f) - ang_vel.xyz[1]);
+
+			PX4_INFO("SYSID roll: law=%.4f mc=%.4f | pitch: law=%.4f mc=%.4f | phi=%.3f theta=%.3f",
+				 (double)roll_law, (double)_vehicle_torque_setpoint_virtual_mc->xyz[0],
+				 (double)pitch_law, (double)_vehicle_torque_setpoint_virtual_mc->xyz[1],
+				 (double)attitude.phi(), (double)attitude.theta());
+		}
+	}
+
 	// NOTE: a roll+pitch torque-level hold was tried here (run 30) and
 	// slammed the allocator within 2 s of the tilt ramp -- the law's
 	// sign/scale against vehicle_torque_setpoint conventions is NOT yet
