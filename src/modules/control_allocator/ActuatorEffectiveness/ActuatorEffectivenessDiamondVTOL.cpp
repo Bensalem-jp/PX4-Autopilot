@@ -110,6 +110,23 @@ ActuatorEffectivenessDiamondVTOL::getEffectivenessMatrix(Configuration &configur
 	const bool mc_rotors_added_successfully = _mc_rotors.addActuators(configuration);
 	_motors = _mc_rotors.getMotors();
 
+	// Diamond: zero the rotor YAW row. updateAxisFromTilts gives the
+	// tilted forward fans large yaw effectiveness (|y|*CT*sin(tilt) ~
+	// 1.2 Nm/unit vs louver 0.12), so the pseudo-inverse routes ~99%
+	// of transition yaw to fan differentials -- but the fans already
+	// carry roll/pitch/thrust duty and the composite loop measured
+	// sign-inconsistent against the plant (runs 24-28: spin amplified
+	// while the hover-validated louver path starved at ~1% share).
+	// ALL yaw belongs to the louver columns, exactly like the
+	// hover-validated 22001 configuration.
+	{
+		auto &mat = configuration.effectiveness_matrices[configuration.selected_matrix];
+
+		for (int m = 0; m < configuration.num_actuators[(int)ActuatorType::MOTORS]; ++m) {
+			mat(2, m) = 0.f;
+		}
+	}
+
 	// Tilts (matrix 0, after rotors)
 	_first_tilt_idx = configuration.num_actuators_matrix[configuration.selected_matrix];
 	_tilts.updateTorqueSign(_mc_rotors.geometry(), true /* disable pitch */);
