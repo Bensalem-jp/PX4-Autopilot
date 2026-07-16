@@ -429,23 +429,35 @@ void Tiltrotor::fill_actuator_outputs()
 		_torque_setpoint_1->xyz[2] = _vehicle_torque_setpoint_virtual_fw->xyz[2];
 	}
 
-	// Diamond P1 yaw hold, applied directly at the torque output.
+	// Diamond transition attitude hold, applied directly at the torque
+	// output (the PX4-native port of the T1 level-hold architecture).
 	// Upstream v1.15 gates mc_att_control OFF during tiltrotor
-	// transitions (rates stale, louvers frozen; runs 18-23) and
-	// re-enabling it fed a constant 0.54 rad/s yaw-rate setpoint from
-	// an upstream source (run 25 probe) -- both paths leave P1 yaw
-	// unusable. Hold the transition-start heading with a P-D law on
-	// the same loop-shaped gains the hover louver runs (MC_YAW_P 0.9,
-	// MC_YAWRATE_K 4.03), bypassing the attitude/rate modules.
-	if (_vtol_mode == vtol_mode::TRANSITION_FRONT_P1) {
+	// transitions (rates stale; runs 18-23) and re-enabling it feeds a
+	// rotating upstream yaw setpoint (run 25) -- so P1/P2 attitude is
+	// held here with P-D laws on the hover-validated loop-shaped gains
+	// (att P 1.89/1.89/0.9, rate K 3.60/2.68/4.03), bypassing the
+	// attitude/rate modules. Roll and pitch hold LEVEL (the plateau
+	// accelerates on diverted Fx, not tilt); yaw holds the
+	// transition-start heading. Without the pitch hold the P2 diverter
+	// ramp's trim step ran pitch past 30 deg in 0.6 s (run 29).
+	if (_vtol_mode == vtol_mode::TRANSITION_FRONT_P1
+	    || _vtol_mode == vtol_mode::TRANSITION_FRONT_P2) {
 		vehicle_angular_velocity_s ang_vel{};
 		_angular_velocity_sub.copy(&ang_vel);
 
-		const float yaw = Eulerf(Quatf(_v_att->q)).psi();
-		const float yaw_err = matrix::wrap_pi(_transition_start_yaw - yaw);
+		const Eulerf attitude(Quatf(_v_att->q));
+
+		const float roll_rate_sp = math::constrain(1.89f * (0.f - attitude.phi()), -2.f, 2.f);
+		const float roll_torque = 3.60f * (roll_rate_sp - ang_vel.xyz[0]);
+		_torque_setpoint_0->xyz[0] = math::constrain(roll_torque, -1.f, 1.f);
+
+		const float pitch_rate_sp = math::constrain(1.89f * (0.f - attitude.theta()), -2.f, 2.f);
+		const float pitch_torque = 2.68f * (pitch_rate_sp - ang_vel.xyz[1]);
+		_torque_setpoint_0->xyz[1] = math::constrain(pitch_torque, -1.f, 1.f);
+
+		const float yaw_err = matrix::wrap_pi(_transition_start_yaw - attitude.psi());
 		const float yaw_rate_sp = math::constrain(0.9f * yaw_err, -1.f, 1.f);
 		const float yaw_torque = 4.03f * (yaw_rate_sp - ang_vel.xyz[2]);
-
 		_torque_setpoint_0->xyz[2] = math::constrain(yaw_torque, -1.f, 1.f);
 	}
 
