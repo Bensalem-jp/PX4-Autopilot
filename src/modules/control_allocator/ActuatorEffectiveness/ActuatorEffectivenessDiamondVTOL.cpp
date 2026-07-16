@@ -245,6 +245,24 @@ void ActuatorEffectivenessDiamondVTOL::updateSetpoint(const matrix::Vector<float
 					}
 				}
 			}
+
+			// During the front transition the wing progressively
+			// unloads the fans and the MC z-loop winds the lift fans
+			// to ZERO at ~13 m/s -- killing louver yaw (scales with
+			// FIW thrust) and fan-differential roll exactly when the
+			// locked elevons cannot take over (run 33: roll 35 deg,
+			// ground contact at 15 m/s, all fan attitude authority
+			// gone). FLOOR the untiltable lift fans through the
+			// transition too; the slight excess lift is absorbed by
+			// the altitude loop and the alt-loss gate measures loss.
+			if (_flight_phase == FlightPhase::TRANSITION_HF_TO_FF) {
+				for (int i = 0; i < _first_tilt_idx; ++i) {
+					if ((_untiltable_motors & (1u << i))
+					    && actuator_sp(i) < _param_fw_lift_fan_min) {
+						actuator_sp(i) = _param_fw_lift_fan_min;
+					}
+				}
+			}
 		}
 
 		if (_flight_phase == FlightPhase::FORWARD_FLIGHT) {
