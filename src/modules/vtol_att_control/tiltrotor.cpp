@@ -440,20 +440,17 @@ void Tiltrotor::fill_actuator_outputs()
 	// accelerates on diverted Fx, not tilt); yaw holds the
 	// transition-start heading. Without the pitch hold the P2 diverter
 	// ramp's trim step ran pitch past 30 deg in 0.6 s (run 29).
+	// NOTE: a roll+pitch torque-level hold was tried here (run 30) and
+	// slammed the allocator within 2 s of the tilt ramp -- the law's
+	// sign/scale against vehicle_torque_setpoint conventions is NOT yet
+	// verified (system-ID probe pending). Yaw-only is flight-proven:
+	// run 29 held the plateau dead straight to a real 15.9 m/s P2.
 	if (_vtol_mode == vtol_mode::TRANSITION_FRONT_P1
 	    || _vtol_mode == vtol_mode::TRANSITION_FRONT_P2) {
 		vehicle_angular_velocity_s ang_vel{};
 		_angular_velocity_sub.copy(&ang_vel);
 
 		const Eulerf attitude(Quatf(_v_att->q));
-
-		const float roll_rate_sp = math::constrain(1.89f * (0.f - attitude.phi()), -2.f, 2.f);
-		const float roll_torque = 3.60f * (roll_rate_sp - ang_vel.xyz[0]);
-		_torque_setpoint_0->xyz[0] = math::constrain(roll_torque, -1.f, 1.f);
-
-		const float pitch_rate_sp = math::constrain(1.89f * (0.f - attitude.theta()), -2.f, 2.f);
-		const float pitch_torque = 2.68f * (pitch_rate_sp - ang_vel.xyz[1]);
-		_torque_setpoint_0->xyz[1] = math::constrain(pitch_torque, -1.f, 1.f);
 
 		const float yaw_err = matrix::wrap_pi(_transition_start_yaw - attitude.psi());
 		const float yaw_rate_sp = math::constrain(0.9f * yaw_err, -1.f, 1.f);
