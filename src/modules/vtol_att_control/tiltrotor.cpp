@@ -422,8 +422,12 @@ void Tiltrotor::fill_actuator_outputs()
 	// deterministic yaw-windup / fore-aft oscillation on the P1
 	// plateau (runs 13-17). P2 and FW keep stock behavior: they only
 	// happen past the groundspeed gate where FW control is legitimate.
+	// (P2 included: at 16 m/s qbar ~165 Pa the elevons have real
+	// authority and the garbage FW roll setpoint snapped the vehicle
+	// past 45 deg within 0.8 s of the P2 unlock -- run 35.)
 	if ((!_param_vt_elev_mc_lock.get() || _vtol_mode != vtol_mode::MC_MODE)
-	    && _vtol_mode != vtol_mode::TRANSITION_FRONT_P1) {
+	    && _vtol_mode != vtol_mode::TRANSITION_FRONT_P1
+	    && _vtol_mode != vtol_mode::TRANSITION_FRONT_P2) {
 		_torque_setpoint_1->xyz[0] = _vehicle_torque_setpoint_virtual_fw->xyz[0];
 		_torque_setpoint_1->xyz[1] = _vehicle_torque_setpoint_virtual_fw->xyz[1];
 		_torque_setpoint_1->xyz[2] = _vehicle_torque_setpoint_virtual_fw->xyz[2];
