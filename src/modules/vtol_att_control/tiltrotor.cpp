@@ -80,6 +80,7 @@ void Tiltrotor::update_vtol_state()
 
 		case vtol_mode::FW_MODE:
 			resetTransitionStates();
+			_transition_start_yaw = Eulerf(Quatf(_v_att->q)).psi();
 			_vtol_mode = vtol_mode::TRANSITION_BACK;
 			break;
 
@@ -427,7 +428,8 @@ void Tiltrotor::fill_actuator_outputs()
 	// past 45 deg within 0.8 s of the P2 unlock -- run 35.)
 	if ((!_param_vt_elev_mc_lock.get() || _vtol_mode != vtol_mode::MC_MODE)
 	    && _vtol_mode != vtol_mode::TRANSITION_FRONT_P1
-	    && _vtol_mode != vtol_mode::TRANSITION_FRONT_P2) {
+	    && _vtol_mode != vtol_mode::TRANSITION_FRONT_P2
+	    && _vtol_mode != vtol_mode::TRANSITION_BACK) {
 		_torque_setpoint_1->xyz[0] = _vehicle_torque_setpoint_virtual_fw->xyz[0];
 		_torque_setpoint_1->xyz[1] = _vehicle_torque_setpoint_virtual_fw->xyz[1];
 		_torque_setpoint_1->xyz[2] = _vehicle_torque_setpoint_virtual_fw->xyz[2];
@@ -474,7 +476,8 @@ void Tiltrotor::fill_actuator_outputs()
 	// verified (system-ID probe pending). Yaw-only is flight-proven:
 	// run 29 held the plateau dead straight to a real 15.9 m/s P2.
 	if (_vtol_mode == vtol_mode::TRANSITION_FRONT_P1
-	    || _vtol_mode == vtol_mode::TRANSITION_FRONT_P2) {
+	    || _vtol_mode == vtol_mode::TRANSITION_FRONT_P2
+	    || _vtol_mode == vtol_mode::TRANSITION_BACK) {
 		vehicle_angular_velocity_s ang_vel{};
 		_angular_velocity_sub.copy(&ang_vel);
 

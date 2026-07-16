@@ -255,7 +255,8 @@ void ActuatorEffectivenessDiamondVTOL::updateSetpoint(const matrix::Vector<float
 			// gone). FLOOR the untiltable lift fans through the
 			// transition too; the slight excess lift is absorbed by
 			// the altitude loop and the alt-loss gate measures loss.
-			if (_flight_phase == FlightPhase::TRANSITION_HF_TO_FF) {
+			if (_flight_phase == FlightPhase::TRANSITION_HF_TO_FF
+			    || _flight_phase == FlightPhase::TRANSITION_FF_TO_HF) {
 				for (int i = 0; i < _first_tilt_idx; ++i) {
 					if ((_untiltable_motors & (1u << i))
 					    && actuator_sp(i) < _param_fw_lift_fan_min) {
