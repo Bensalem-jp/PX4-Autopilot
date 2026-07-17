@@ -181,8 +181,12 @@ param set ASPD_DO_CHECKS 0
 # Cruise throttle starting point: fwd fans at ~0.5 of CT 20 N each
 # through the diverters carries the trim drag at ~16-18 m/s (T1/CFD).
 param set FW_THR_TRIM 0.55
-param set NAV_ACC_RAD 30
+param set NAV_ACC_RAD 40
 param set NAV_LOITER_RAD 80
+# FW waypoint acceptance also gates on altitude: |alt err| must be
+# inside NAV_FW_ALT_RAD at the same time as the xy radius. 20 m gives
+# the sim TECS margin while alt-band quality is scored by the runner.
+param set NAV_FW_ALT_RAD 20
 
 # --- Transition porpoise damping (ulog-diagnosed marginal loop) ---
 # During P1/P2 fw_att publishes vehicle_rates_setpoint (v1.15 routes rate-SP
@@ -193,8 +197,14 @@ param set NAV_LOITER_RAD 80
 # rate shield. The diamond only needs "hold level" during transition, so
 # halve the loop gain and cap the FW rate demand below the 15 deg/s
 # pitch-quiet gate.
-param set FW_P_TC 0.8
-param set FW_R_TC 0.8
+# Stock attitude time constants: the 0.8 s porpoise-era detune made
+# the roll response sluggish enough that NPFG weaved +-30 deg around
+# the leg and pumped 30 m altitude excursions at each reversal (GM
+# run 17) — the WP acceptance (xy AND alt) never fired. The porpoise
+# plant (mirrored aero, bn005546 derivatives, no CMq) is gone; runs
+# 15-17 transition at +-2 deg pitch.
+param set FW_P_TC 0.4
+param set FW_R_TC 0.4
 # 25 deg/s: the 12 deg/s porpoise-era cap also limited FW-mode pitch
 # recovery (run 14: TECS demanded +21 deg into a sink, the vehicle
 # gained only ~5 deg/s and flew into the ground). The porpoise itself
