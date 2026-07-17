@@ -187,6 +187,10 @@ param set NAV_LOITER_RAD 80
 # inside NAV_FW_ALT_RAD at the same time as the xy radius. 20 m gives
 # the sim TECS margin while alt-band quality is scored by the runner.
 param set NAV_FW_ALT_RAD 20
+# Guidance-attitude timescale separation: with the 0.8 s attitude TC,
+# the stock 10 s NPFG period limit-cycles (+-30 deg weave, 30 m
+# altitude pumps at each reversal, run 17). 18 s calms the outer loop.
+param set NPFG_PERIOD 18
 
 # --- Transition porpoise damping (ulog-diagnosed marginal loop) ---
 # During P1/P2 fw_att publishes vehicle_rates_setpoint (v1.15 routes rate-SP
@@ -197,14 +201,13 @@ param set NAV_FW_ALT_RAD 20
 # rate shield. The diamond only needs "hold level" during transition, so
 # halve the loop gain and cap the FW rate demand below the 15 deg/s
 # pitch-quiet gate.
-# Stock attitude time constants: the 0.8 s porpoise-era detune made
-# the roll response sluggish enough that NPFG weaved +-30 deg around
-# the leg and pumped 30 m altitude excursions at each reversal (GM
-# run 17) — the WP acceptance (xy AND alt) never fired. The porpoise
-# plant (mirrored aero, bn005546 derivatives, no CMq) is gone; runs
-# 15-17 transition at +-2 deg pitch.
-param set FW_P_TC 0.4
-param set FW_R_TC 0.4
+# Attitude time constants stay at 0.8 s: run 17 flew 167 s stably on
+# them; restoring stock 0.4 s (run 18) sent the roll axis unstable
+# within 13 s of FW entry against the full-strength diamond elevons.
+# The run-17 +-30 deg weave is treated at its source instead: the
+# NPFG period (below).
+param set FW_P_TC 0.8
+param set FW_R_TC 0.8
 # 25 deg/s: the 12 deg/s porpoise-era cap also limited FW-mode pitch
 # recovery (run 14: TECS demanded +21 deg into a sink, the vehicle
 # gained only ~5 deg/s and flew into the ground). The porpoise itself
