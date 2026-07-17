@@ -194,6 +194,14 @@ param set FW_R_RMAX 25.0
 # Bank limit: keep NPFG intercept banks 15 deg under the runner's 45 deg
 # roll shield (MC-tuned); 30 deg is ample for 900 m mission legs.
 param set FW_R_LIM 30.0
+# Feedback-dominant FW roll rate loop. Stock FF=0.5 >> P=0.05 assumes
+# the airframe's own Cl_p roll damping closes the loop physically; the
+# sim aero model has ZERO roll damping (mx=0), so FF-dominant tuning
+# settles at p ~ (FF/P+1) = 11x the setpoint (GM run 9b: p_sp 0.31 ->
+# p 1.96, roll -14 -> +37 deg through the shield). Measured authority:
+# ~19.6 Nm per torque unit -> P=0.15 gives a clean ~3.8 rad/s pole.
+param set FW_RR_FF 0.05
+param set FW_RR_P 0.15
 
 # --- SITL bypass parameters (hover-validated) ---
 param set COM_ARM_WO_GPS 1
