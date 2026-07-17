@@ -190,8 +190,13 @@ param set NAV_LOITER_RAD 80
 # pitch-quiet gate.
 param set FW_P_TC 0.8
 param set FW_R_TC 0.8
-param set FW_P_RMAX_POS 12.0
-param set FW_P_RMAX_NEG 12.0
+# 25 deg/s: the 12 deg/s porpoise-era cap also limited FW-mode pitch
+# recovery (run 14: TECS demanded +21 deg into a sink, the vehicle
+# gained only ~5 deg/s and flew into the ground). The porpoise itself
+# is gone with the corrected plant (static stability + CMq + real
+# diamond derivatives) — watch the transition on the next runs.
+param set FW_P_RMAX_POS 25.0
+param set FW_P_RMAX_NEG 25.0
 # Roll rate cap stays higher than pitch: the porpoise is pitch-led, and
 # FW-mode NPFG bank capture needs usable roll rate (GM run 8: 50 deg
 # intercept bank at 12 deg/s lagged ~4 s into the runner roll shield).
