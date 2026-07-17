@@ -164,13 +164,15 @@ param set VT_DIA_PQ_T 1.0
 # 15% instead of tracking cruise throttle (T1 cruise trim ~0.195).
 param set CA_DIA_FW_LF_MIN 0.15
 
-# --- Airspeed source: groundspeed-based (no pitot in sim) ---
-param set SYS_HAS_NUM_ASPD 0
-param set ASPD_PRIMARY 0
-# Airspeed-less FW control (T4 mission cruise): TECS and the L1/NPFG
-# guidance run without an airspeed sensor; the diamond transition
-# condition already falls back to EKF groundspeed (fork).
-param set FW_USE_AIRSPD 0
+# --- Airspeed source: simulated pitot (bridge diff_pressure) ---
+# The bridge computes diff_pressure from the nose-ward groundspeed
+# (windless sim: airspeed == groundspeed exactly). Airspeed-less FW
+# flight had no TECS speed feedback (unbounded acceleration to 31 m/s,
+# GM run 15) and no FW_ARSP_SCALE gain scheduling (surface-loop gain
+# grew with qbar until the roll axis rang).
+param set SYS_HAS_NUM_ASPD 1
+param set ASPD_PRIMARY 1
+param set FW_USE_AIRSPD 1
 
 # --- T4 mission-mode FW cruise basics ---
 # Cruise throttle starting point: fwd fans at ~0.5 of CT 20 N each
