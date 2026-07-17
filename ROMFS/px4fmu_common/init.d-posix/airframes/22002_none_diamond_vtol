@@ -212,17 +212,16 @@ param set NPFG_PERIOD 13
 # NPFG period (below).
 param set FW_P_TC 0.8
 param set FW_R_TC 0.8
-# 25 deg/s: the 12 deg/s porpoise-era cap also limited FW-mode pitch
-# recovery (run 14: TECS demanded +21 deg into a sink, the vehicle
-# gained only ~5 deg/s and flew into the ground). The porpoise itself
-# is gone with the corrected plant (static stability + CMq + real
-# diamond derivatives) — watch the transition on the next runs.
-param set FW_P_RMAX_POS 25.0
-param set FW_P_RMAX_NEG 25.0
-# Roll rate cap stays higher than pitch: the porpoise is pitch-led, and
-# FW-mode NPFG bank capture needs usable roll rate (GM run 8: 50 deg
-# intercept bank at 12 deg/s lagged ~4 s into the runner roll shield).
-param set FW_R_RMAX 25.0
+# TRANSITION-safe rate caps. These params serve two regimes: the
+# transition hybrid loop (fw_att rate SPs tracked by the MC rate
+# controller on the fans) wants them LOW — 25 deg/s reintroduced an
+# intermittent transition roll ring (run 22, ~1-in-8) with the
+# full-strength diamond Cl_da — while FW-mode TECS capture and NPFG
+# banking want 25 deg/s (run 14). The GM runner STAGES them: 12 here
+# for the transition, pushed to 25 the moment FW is reached.
+param set FW_P_RMAX_POS 12.0
+param set FW_P_RMAX_NEG 12.0
+param set FW_R_RMAX 12.0
 # Bank limit: keep NPFG intercept banks 15 deg under the runner's 45 deg
 # roll shield (MC-tuned); 30 deg is ample for 900 m mission legs.
 param set FW_R_LIM 30.0
