@@ -338,12 +338,13 @@ void ActuatorEffectivenessDiamondVTOL::setFlightPhase(const FlightPhase &flight_
 
 	ActuatorEffectiveness::setFlightPhase(flight_phase);
 
-	// Update stopped motors
+	// The diamond never stops its untiltable lift fans: the FW branch in
+	// updateSetpoint() floors them at CA_DIA_FW_LF_MIN (wing carries only
+	// ~90 N at transition speed, and louver yaw authority scales with fan
+	// thrust). Marking them stopped here let the allocator publish NaN
+	// which overrode that floor at FW entry (GM run 8: lf 0.29 -> NaN).
 	switch (flight_phase) {
 	case FlightPhase::FORWARD_FLIGHT:
-		_stopped_motors_mask |= _untiltable_motors;
-		break;
-
 	case FlightPhase::HOVER_FLIGHT:
 	case FlightPhase::TRANSITION_FF_TO_HF:
 	case FlightPhase::TRANSITION_HF_TO_FF:
