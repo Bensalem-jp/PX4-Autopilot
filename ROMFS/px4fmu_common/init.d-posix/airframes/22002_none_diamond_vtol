@@ -173,6 +173,9 @@ param set CA_DIA_FW_LF_MIN 0.15
 param set SYS_HAS_NUM_ASPD 1
 param set ASPD_PRIMARY 1
 param set FW_USE_AIRSPD 1
+# Simulated pitot is exact and windless: the selector's failure checks
+# (stuck/innovation) latched it failed on the ground (GM run 16).
+param set ASPD_DO_CHECKS 0
 
 # --- T4 mission-mode FW cruise basics ---
 # Cruise throttle starting point: fwd fans at ~0.5 of CT 20 N each
