@@ -138,6 +138,10 @@ param set PWM_MAIN_FUNC10 206
 # --- VTOL transition schedule (T1-validated) ---
 param set VT_TYPE 1
 param set VT_ARSP_TRANS 15
+# Cruise 2 m/s above the transition speed: bank-induced airspeed dips
+# otherwise drive TECS underspeed pitch-downs (the 20-30 m altitude
+# pumps at each turn, runs 17/19).
+param set FW_AIRSPD_TRIM 17
 param set VT_TILT_TRANS 0.35
 param set VT_BT_TILT_DUR 0.5
 # VT_FW_MIN_ALT 0 = DISABLED for SITL. The T3-0 value (5) mistranslated
@@ -181,16 +185,16 @@ param set ASPD_DO_CHECKS 0
 # Cruise throttle starting point: fwd fans at ~0.5 of CT 20 N each
 # through the diverters carries the trim drag at ~16-18 m/s (T1/CFD).
 param set FW_THR_TRIM 0.55
-param set NAV_ACC_RAD 40
+param set NAV_ACC_RAD 60
 param set NAV_LOITER_RAD 80
 # FW waypoint acceptance also gates on altitude: |alt err| must be
 # inside NAV_FW_ALT_RAD at the same time as the xy radius. 20 m gives
 # the sim TECS margin while alt-band quality is scored by the runner.
 param set NAV_FW_ALT_RAD 20
-# Guidance-attitude timescale separation: with the 0.8 s attitude TC,
-# the stock 10 s NPFG period limit-cycles (+-30 deg weave, 30 m
-# altitude pumps at each reversal, run 17). 18 s calms the outer loop.
-param set NPFG_PERIOD 18
+# Guidance-attitude timescale separation: stock 10 s limit-cycles
+# against the 0.8 s attitude TC (run 17 weave), 18 s converges too
+# slowly to enter the WP cylinder (run 19: 95 m abeam pass). 13 s.
+param set NPFG_PERIOD 13
 
 # --- Transition porpoise damping (ulog-diagnosed marginal loop) ---
 # During P1/P2 fw_att publishes vehicle_rates_setpoint (v1.15 routes rate-SP
