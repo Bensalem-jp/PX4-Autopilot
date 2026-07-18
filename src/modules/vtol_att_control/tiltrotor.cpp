@@ -483,9 +483,19 @@ void Tiltrotor::fill_actuator_outputs()
 
 		const Eulerf attitude(Quatf(_v_att->q));
 
-		const float yaw_err = matrix::wrap_pi(_transition_start_yaw - attitude.psi());
-		const float yaw_rate_sp = math::constrain(0.9f * yaw_err, -1.f, 1.f);
-		const float yaw_torque = 4.03f * (yaw_rate_sp - ang_vel.xyz[2]);
+		// Yaw DAMPER, not heading hold. The measured plant is
+		// weathervane-stable (Cn_beta +0.061): with residual crab
+		// (CY_beta gives tau ~ 22 s) the weathervane torque grows
+		// with qbar and a fixed-heading pin escalates into an
+		// arm-wrestle that saturates both yaw effectors and collapses
+		// at ~10 m/s (T5 run 33: louver + fan differentials ramped
+		// monotonically, then r blew up). Rate-only damping lets the
+		// nose align with the airflow (the mission leg is
+		// heading-aligned, so the drift is a few degrees) while the
+		// louver/fans damp the lightly-damped weathervane pendulum.
+		// _transition_start_yaw is still captured for the attitude-SP
+		// path (P1 upstream blending), which tolerates the drift.
+		const float yaw_torque = 4.03f * (0.f - ang_vel.xyz[2]);
 		_torque_setpoint_0->xyz[2] = math::constrain(yaw_torque, -1.f, 1.f);
 	}
 
