@@ -182,9 +182,20 @@ param set FW_USE_AIRSPD 1
 param set ASPD_DO_CHECKS 0
 
 # --- T4 mission-mode FW cruise basics ---
-# Cruise throttle starting point: fwd fans at ~0.5 of CT 20 N each
-# through the diverters carries the trim drag at ~16-18 m/s (T1/CFD).
-param set FW_THR_TRIM 0.55
+# Trim throttle matches the ENV plant, not the T1 CFD estimate: the
+# polar's CD gives ~7 N drag at 17 m/s against 48 N of fwd-fan thrust
+# (level trim ~0.15). The CFD-era 0.55 left TECS with a +0.4 constant
+# feedforward error — throttle banged 0.00<->1.00 and the airspeed
+# never converged (run 26: tas 21-30 vs sp 17.2). The CFD-vs-polar
+# drag gap itself is a BWB-side question.
+param set FW_THR_TRIM 0.15
+# Bound the energy slosh on this slippery (L/D ~20) airframe: the
+# stock 5 m/s climb/sink limits let TECS trade 50 m zoom-dives.
+param set FW_T_CLMB_MAX 3.0
+param set FW_T_SINK_MAX 3.0
+param set FW_T_SINK_MIN 1.5
+param set FW_P_LIM_MAX 15.0
+param set FW_P_LIM_MIN -12.0
 param set NAV_ACC_RAD 60
 param set NAV_LOITER_RAD 80
 # FW waypoint acceptance also gates on altitude: |alt err| must be
