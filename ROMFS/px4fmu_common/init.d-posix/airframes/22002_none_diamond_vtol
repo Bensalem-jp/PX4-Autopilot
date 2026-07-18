@@ -182,10 +182,21 @@ param set FW_USE_AIRSPD 1
 param set ASPD_DO_CHECKS 0
 
 # --- T4 mission-mode FW cruise basics ---
-# BISECT NOTE (run 28): flight config restored to the run-23 state
-# (7/9 gates, landed). The trim-0.15 + TECS-caps bundle (runs 27/27b)
-# and Cl_p (run 26) are re-evaluated one variable at a time.
+# Run-29 configuration: the run-23 base (which itself rings ~50% at
+# entry — run 28 reproduced the ring on identical params) + Cl_p for
+# the ring + TECS energy damping for the phugoid-scale slosh. Trim
+# stays 0.55 (0.15 did not tame the overspeed: the energy source is
+# the dives, not the throttle FF — 27b tas mean 25 at throttle 0).
 param set FW_THR_TRIM 0.55
+# TECS de-tuned for a slippery L/D~20 airframe: slower energy transfer
+# and real pitch damping kill the kinetic<->potential slosh that fed
+# every wander (26/27b: 50-70 m alt pumps, tas 20-30 vs sp 17).
+param set FW_T_ALT_TC 10.0
+param set FW_T_TAS_TC 10.0
+param set FW_T_PTCH_DAMP 0.3
+param set FW_T_CLMB_MAX 3.0
+param set FW_T_SINK_MAX 3.0
+param set FW_T_SINK_MIN 1.5
 param set NAV_ACC_RAD 60
 param set NAV_LOITER_RAD 80
 # FW waypoint acceptance also gates on altitude: |alt err| must be
