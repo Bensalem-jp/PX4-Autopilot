@@ -110,20 +110,31 @@ ActuatorEffectivenessDiamondVTOL::getEffectivenessMatrix(Configuration &configur
 	const bool mc_rotors_added_successfully = _mc_rotors.addActuators(configuration);
 	_motors = _mc_rotors.getMotors();
 
-	// Diamond: zero the rotor YAW row. updateAxisFromTilts gives the
-	// tilted forward fans large yaw effectiveness (|y|*CT*sin(tilt) ~
-	// 1.2 Nm/unit vs louver 0.12), so the pseudo-inverse routes ~99%
-	// of transition yaw to fan differentials -- but the fans already
-	// carry roll/pitch/thrust duty and the composite loop measured
-	// sign-inconsistent against the plant (runs 24-28: spin amplified
-	// while the hover-validated louver path starved at ~1% share).
-	// ALL yaw belongs to the louver columns, exactly like the
-	// hover-validated 22001 configuration.
+	// Diamond rotor-yaw policy: scale the rotor YAW row by the
+	// collective tilt fraction instead of hard-zeroing it.
+	// - Vertical fans (hover): yaw entries -> 0, identical to the
+	//   hover-validated behavior (KM=0 ducted fans cannot yaw; the
+	//   T3-2 hard zero also protected the louver share from a
+	//   phantom-plant era where fan-yaw "measured sign-inconsistent"
+	//   -- that observation came from the mirrored tail-first physics
+	//   since fixed on the sim side).
+	// - Tilted fans: differential thrust at |y|=0.115 m is a REAL and
+	//   strong yaw effector (~5.5 Nm at full CT), and the measured
+	//   weathervane stiffness (Cn_beta +0.061) with weak Cn_r makes
+	//   late-transition yaw a lightly-damped pendulum that the
+	//   fan-scaled louver (fans at the floor) cannot hold alone
+	//   (T5 run 32: q/r blowup at the P2 exit).
 	{
 		auto &mat = configuration.effectiveness_matrices[configuration.selected_matrix];
 
+		float tilt_frac = 0.f;
+
+		if (PX4_ISFINITE(_last_collective_tilt_control)) {
+			tilt_frac = math::constrain((_last_collective_tilt_control + 1.f) / 2.f, 0.f, 1.f);
+		}
+
 		for (int m = 0; m < configuration.num_actuators[(int)ActuatorType::MOTORS]; ++m) {
-			mat(2, m) = 0.f;
+			mat(2, m) *= tilt_frac;
 		}
 	}
 
