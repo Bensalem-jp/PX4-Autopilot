@@ -137,11 +137,13 @@ param set PWM_MAIN_FUNC10 206
 
 # --- VTOL transition schedule (T1-validated) ---
 param set VT_TYPE 1
-# 14 (was 15): at 10 m/s headwind the P1 plateau equilibrium sits at
-# ~14.8 m/s airspeed — 0.2 short of the old gate — and the vehicle
-# held a PERFECT plateau until VT_TRANS_TIMEOUT aborted it (T7
-# hover-10). Stall margin is ample; P2 accelerates through 15 anyway.
-param set VT_ARSP_TRANS 14
+# 15 = the T4 calm-validated snap speed. The T7 wind campaign needs 14
+# (10 m/s headwind: plateau equilibrium 14.8 sat 0.2 below the gate and
+# a PERFECT plateau was timeout-aborted) — but 14 in CALM ends the
+# transition 1 m/s slow and widened the FW capture (calm regression:
+# track 93 m vs the 42-45 baseline). The runner stages 14 when wind is
+# requested; boot default stays the calm-validated 15.
+param set VT_ARSP_TRANS 15
 # Cruise 2 m/s above the transition speed: bank-induced airspeed dips
 # otherwise drive TECS underspeed pitch-downs (the 20-30 m altitude
 # pumps at each turn, runs 17/19).
