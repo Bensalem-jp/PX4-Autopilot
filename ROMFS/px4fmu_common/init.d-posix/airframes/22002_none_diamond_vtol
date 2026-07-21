@@ -188,6 +188,13 @@ param set VT_FWD_THRUST_EN 2
 param set VT_FWD_THRUST_SC 1.2
 param set VT_PITCH_MIN -1.0
 param set VT_LND_PITCH_MIN -1.0
+# EN=2 gates the assist on dist_to_ground > MPC_LAND_ALT1 (10 m def).
+# 15 m/s run 2 diverged at 4.5 m: below the gate the drift-recovery
+# attitude demands push alpha to +9 deg where the static instability
+# (CP 0.24 vs CG 0.533) costs ~30 Nm at 138 Pa = full fan authority.
+# Lower the gate so the assist covers the climb-out; side effect is a
+# later slow-descent switch in LAND (faster approach until 4 m).
+param set MPC_LAND_ALT1 4.0
 
 # --- Airspeed source: simulated pitot (bridge diff_pressure) ---
 # The bridge computes diff_pressure from the nose-ward groundspeed
