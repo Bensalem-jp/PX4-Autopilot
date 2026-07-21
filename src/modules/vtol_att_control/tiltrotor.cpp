@@ -436,7 +436,13 @@ void Tiltrotor::fill_actuator_outputs()
 
 	} else if (_vtol_mode == vtol_mode::MC_MODE
 		   && _param_vt_dia_elev_qbar.get() > FLT_EPSILON
+		   && !_land_detected->landed
 		   && PX4_ISFINITE(_airspeed_validated->calibrated_airspeed_m_s)) {
+		// Grounded gate: on the ground in high wind the MC attitude
+		// demands rail the elevons against the fixed gear stance; at
+		// 138 Pa the surface downforce (~tens of N) exceeds the static
+		// thrust margin and pins the takeoff (T7 15 m/s runs 1/3,
+		// proven by the elevon-off A/B run 4 which lifted cleanly).
 		// MC_MODE ONLY: the transition phases run the tuned fw_att
 		// hybrid loop with elevons locked (T3-2) — injecting a second
 		// MC-driven elevon path there double-acts the surfaces at
@@ -464,8 +470,16 @@ void Tiltrotor::fill_actuator_outputs()
 		const float qbar = 0.5f * 1.225f * cas * cas;
 
 		if (qbar > 0.01f * _param_vt_dia_elev_qbar.get()) {
-			_torque_setpoint_1->xyz[0] = _vehicle_torque_setpoint_virtual_mc->xyz[0];
-			_torque_setpoint_1->xyz[1] = _vehicle_torque_setpoint_virtual_mc->xyz[1];
+			// Authority cap: the delivered surface torque grows
+			// linearly with qbar, so the MC loop gain does too —
+			// validated to ~90 Pa (12 m/s), roll-led divergence at
+			// 138 Pa (15 m/s, T7 run 2). Above VT_DIA_ELEV_QC the
+			// demand is scaled by qc/qbar, holding the delivered
+			// authority at the validated level. 0 disables the cap.
+			const float q_cap = _param_vt_dia_elev_qcap.get();
+			const float gain = (q_cap > FLT_EPSILON && qbar > q_cap) ? (q_cap / qbar) : 1.f;
+			_torque_setpoint_1->xyz[0] = gain * _vehicle_torque_setpoint_virtual_mc->xyz[0];
+			_torque_setpoint_1->xyz[1] = gain * _vehicle_torque_setpoint_virtual_mc->xyz[1];
 		}
 	}
 

@@ -159,3 +159,17 @@ PARAM_DEFINE_FLOAT(VT_DIA_PQ_T, 0.f);
  * @group VTOL Attitude Control
  */
 PARAM_DEFINE_FLOAT(VT_DIA_ELEV_QB, 0.0f);
+
+/**
+ * Diamond wind-hover elevon assist authority cap (dynamic pressure)
+ *
+ * Above this qbar the blended MC torque demand is scaled by
+ * VT_DIA_ELEV_QC / qbar, holding the delivered surface authority
+ * (and thus the added MC loop gain) constant at the level validated
+ * in flight. 0 disables the cap (legacy linear growth).
+ *
+ * @min 0.0
+ * @max 1000.0
+ * @group VTOL Attitude Control
+ */
+PARAM_DEFINE_FLOAT(VT_DIA_ELEV_QC, 0.0f);

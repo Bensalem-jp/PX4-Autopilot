@@ -177,6 +177,11 @@ param set CA_DIA_FW_LF_MIN 0.15
 # elevons scaled by qbar/200 Pa (full authority ~18 m/s airspeed).
 # Calm air -> zero contribution (hover regression identical).
 param set VT_DIA_ELEV_QB 200.0
+# Cap the delivered elevon authority at the 12 m/s-validated level
+# (~90 Pa); uncapped, the added MC loop gain diverged in roll at
+# 138 Pa (T7 15 m/s run 2). Landed-gate lives in code (T7 run 4 A/B:
+# grounded elevon downforce pinned the takeoff).
+param set VT_DIA_ELEV_QC 100.0
 # Wind-hover pusher assist (T7): in >=13 m/s headwind the MC position
 # controller leans -3.4 deg into the wind; on a winged airframe that is
 # negative alpha -> ~49 N downforce at 15 m/s, eating the entire thrust
