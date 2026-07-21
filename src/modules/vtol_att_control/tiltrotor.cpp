@@ -221,8 +221,13 @@ void Tiltrotor::update_mc_state()
 	// vehicle is physically on its gear — gating on ->landed left the
 	// rotation dead exactly when it was needed (tilt 0.00 through the
 	// 575 s pin).
+	// Gate at MPC_LAND_ALT1 — the SAME altitude where the EN=2
+	// pusher takes over — so the two regimes hand off with no gap.
+	// The earlier 1 m gate left a 1-2 m band with neither rotation
+	// nor pusher: at 245 Pa the lean downforce owns that band and
+	// the vehicle limit-cycled 0-2 m for the whole 580 s budget.
 	if (_param_vt_dia_rot_p.get() > FLT_EPSILON
-	    && distToGround() < 1.0f
+	    && distToGround() < _param_mpc_land_alt1.get()
 	    && PX4_ISFINITE(_airspeed_validated->calibrated_airspeed_m_s)) {
 		const float cas = _airspeed_validated->calibrated_airspeed_m_s;
 		const float qbar = 0.5f * 1.225f * cas * cas;
@@ -490,7 +495,7 @@ void Tiltrotor::fill_actuator_outputs()
 
 	} else if (_vtol_mode == vtol_mode::MC_MODE
 		   && _param_vt_dia_elev_qbar.get() > FLT_EPSILON
-		   && distToGround() > 1.0f
+		   && distToGround() > _param_mpc_land_alt1.get()
 		   && PX4_ISFINITE(_airspeed_validated->calibrated_airspeed_m_s)) {
 		// Grounded gate: on the ground in high wind the MC attitude
 		// demands rail the elevons against the fixed gear stance; at
