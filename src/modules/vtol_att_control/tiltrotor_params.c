@@ -173,3 +173,19 @@ PARAM_DEFINE_FLOAT(VT_DIA_ELEV_QB, 0.0f);
  * @group VTOL Attitude Control
  */
 PARAM_DEFINE_FLOAT(VT_DIA_ELEV_QC, 0.0f);
+
+/**
+ * Diamond wind-takeoff rotation pitch
+ *
+ * While landed in MC mode with meaningful airflow (qbar > 20 Pa) the
+ * attitude setpoint is held at this nose-up pitch and the diverters
+ * are cracked open: the vehicle rotates on its gear and the wing
+ * lifts it off instead of the wind pressing it down. 0 disables
+ * (calm boot state; the runner stages it for wind runs).
+ *
+ * @unit deg
+ * @min 0.0
+ * @max 10.0
+ * @group VTOL Attitude Control
+ */
+PARAM_DEFINE_FLOAT(VT_DIA_ROT_P, 0.0f);

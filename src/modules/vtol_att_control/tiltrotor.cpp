@@ -186,6 +186,38 @@ void Tiltrotor::update_mc_state()
 
 	_tilt_control = VtolType::pusher_assist() + _param_vt_tilt_mc.get();
 	_mc_yaw_weight = 1.0f;
+
+	// Wind-takeoff rotation (T7). Parked nose-into-wind the stance
+	// alpha is negative: the wind presses the airframe onto its gear
+	// (~50 N at 245 Pa) and the ground-frozen climb integrator grinds
+	// through a marginal liftoff (240+ s, 15 m/s staged runs). The
+	// pusher-assist clamp cannot cover this: EN=1 is disabled by the
+	// landing_or_descending clause during climb-rate-controlled
+	// phases and EN=2 is altitude-gated above the ground. While
+	// LANDED with real airflow, hold a nose-up attitude setpoint
+	// (rotate on the gear -> the wing lifts instead of pressing) and
+	// crack the diverters so drag is balanced from the first airborne
+	// instant. VT_DIA_ROT_P = rotation pitch in deg, 0 disables
+	// (calm boot state; the runner stages it for wind runs).
+	if (_param_vt_dia_rot_p.get() > FLT_EPSILON
+	    && _land_detected->landed
+	    && PX4_ISFINITE(_airspeed_validated->calibrated_airspeed_m_s)) {
+		const float cas = _airspeed_validated->calibrated_airspeed_m_s;
+		const float qbar = 0.5f * 1.225f * cas * cas;
+
+		if (qbar > 20.f) {
+			const float pitch_rot = math::radians(_param_vt_dia_rot_p.get());
+			const Eulerf euler_sp(Quatf(_v_att_sp->q_d));
+
+			if (euler_sp.theta() < pitch_rot) {
+				const Quatf q_rot(Eulerf(euler_sp.phi(), pitch_rot, euler_sp.psi()));
+				q_rot.copyTo(_v_att_sp->q_d);
+				_v_att_sp->pitch_body = pitch_rot;
+			}
+
+			_tilt_control = math::max(_tilt_control, 0.15f);
+		}
+	}
 }
 
 void Tiltrotor::update_fw_state()
