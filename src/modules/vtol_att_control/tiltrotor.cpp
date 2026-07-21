@@ -180,6 +180,23 @@ void Tiltrotor::update_vtol_state()
 	}
 }
 
+float Tiltrotor::distToGround() const
+{
+	// Same source ladder as VtolType::pusher_assist(): range sensor
+	// when valid, else local z relative to home, else raw -z.
+	if (_local_pos->dist_bottom_valid) {
+		return _local_pos->dist_bottom;
+	}
+
+	const float home_z = _attc->get_home_position_z();
+
+	if (PX4_ISFINITE(home_z)) {
+		return -(_local_pos->z - home_z);
+	}
+
+	return -_local_pos->z;
+}
+
 void Tiltrotor::update_mc_state()
 {
 	VtolType::update_mc_state();
@@ -199,8 +216,13 @@ void Tiltrotor::update_mc_state()
 	// crack the diverters so drag is balanced from the first airborne
 	// instant. VT_DIA_ROT_P = rotation pitch in deg, 0 disables
 	// (calm boot state; the runner stages it for wind runs).
+	// Altitude-gated, NOT land-detector-gated: at pinned full thrust
+	// the detector de-asserts landed (its low-thrust test) while the
+	// vehicle is physically on its gear — gating on ->landed left the
+	// rotation dead exactly when it was needed (tilt 0.00 through the
+	// 575 s pin).
 	if (_param_vt_dia_rot_p.get() > FLT_EPSILON
-	    && _land_detected->landed
+	    && distToGround() < 1.0f
 	    && PX4_ISFINITE(_airspeed_validated->calibrated_airspeed_m_s)) {
 		const float cas = _airspeed_validated->calibrated_airspeed_m_s;
 		const float qbar = 0.5f * 1.225f * cas * cas;
@@ -468,13 +490,17 @@ void Tiltrotor::fill_actuator_outputs()
 
 	} else if (_vtol_mode == vtol_mode::MC_MODE
 		   && _param_vt_dia_elev_qbar.get() > FLT_EPSILON
-		   && !_land_detected->landed
+		   && distToGround() > 1.0f
 		   && PX4_ISFINITE(_airspeed_validated->calibrated_airspeed_m_s)) {
 		// Grounded gate: on the ground in high wind the MC attitude
 		// demands rail the elevons against the fixed gear stance; at
 		// 138 Pa the surface downforce (~tens of N) exceeds the static
 		// thrust margin and pins the takeoff (T7 15 m/s runs 1/3,
 		// proven by the elevon-off A/B run 4 which lifted cleanly).
+		// Altitude gate, NOT the land detector: at pinned full
+		// thrust the detector de-asserts landed (low-thrust test)
+		// while the vehicle is physically on its gear — the !landed
+		// form left the elevons live and the pin stochastic.
 		// MC_MODE ONLY: the transition phases run the tuned fw_att
 		// hybrid loop with elevons locked (T3-2) — injecting a second
 		// MC-driven elevon path there double-acts the surfaces at

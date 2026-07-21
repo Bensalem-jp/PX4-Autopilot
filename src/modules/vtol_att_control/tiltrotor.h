@@ -102,6 +102,11 @@ private:
 	 */
 	bool isPitchQuiet();
 
+	// Physical height above ground (pusher_assist source ladder).
+	// The land detector is NOT a ground oracle at high thrust: its
+	// low-thrust test de-asserts landed during a pinned takeoff.
+	float distToGround() const;
+
 	uORB::Subscription _angular_velocity_sub{ORB_ID(vehicle_angular_velocity)};
 	hrt_abstime _pitch_quiet_since{0};
 	// Heading captured at front-transition start (P1 yaw pin)
