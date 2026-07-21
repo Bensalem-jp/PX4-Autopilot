@@ -144,3 +144,18 @@ PARAM_DEFINE_FLOAT(VT_DIA_PQ_RATE, 15.f);
  * @group VTOL Attitude Control
  */
 PARAM_DEFINE_FLOAT(VT_DIA_PQ_T, 0.f);
+
+/**
+ * Diamond wind-hover elevon assist: full-authority dynamic pressure
+ *
+ * In MC mode and transitions, blend the MC roll/pitch torque demands
+ * onto the elevons scaled by measured qbar / this value (clamped 0-1).
+ * 0 disables the assist entirely (exact legacy hover behavior).
+ * The 5-10 m/s wind band is where fans alone cannot trim the wing's
+ * wind moment; ~200 Pa (18 m/s) is the natural full-authority point.
+ *
+ * @min 0.0
+ * @max 1000.0
+ * @group VTOL Attitude Control
+ */
+PARAM_DEFINE_FLOAT(VT_DIA_ELEV_QB, 0.0f);

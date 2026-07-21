@@ -167,6 +167,10 @@ param set VT_DIA_PQ_T 1.0
 # FW lift-fan floor: wing carries ~90 N at 16.5 m/s; lift fans hold
 # 15% instead of tracking cruise throttle (T1 cruise trim ~0.195).
 param set CA_DIA_FW_LF_MIN 0.15
+# Wind-hover elevon assist (T6): blend MC roll/pitch demands onto the
+# elevons scaled by qbar/200 Pa (full authority ~18 m/s airspeed).
+# Calm air -> zero contribution (hover regression identical).
+param set VT_DIA_ELEV_QB 200.0
 
 # --- Airspeed source: simulated pitot (bridge diff_pressure) ---
 # The bridge computes diff_pressure from the nose-ward groundspeed

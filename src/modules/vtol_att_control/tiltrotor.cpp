@@ -433,6 +433,25 @@ void Tiltrotor::fill_actuator_outputs()
 		_torque_setpoint_1->xyz[0] = _vehicle_torque_setpoint_virtual_fw->xyz[0];
 		_torque_setpoint_1->xyz[1] = _vehicle_torque_setpoint_virtual_fw->xyz[1];
 		_torque_setpoint_1->xyz[2] = _vehicle_torque_setpoint_virtual_fw->xyz[2];
+
+	} else if (_param_vt_dia_elev_qbar.get() > FLT_EPSILON
+		   && PX4_ISFINITE(_airspeed_validated->calibrated_airspeed_m_s)) {
+		// Wind-hover elevon assist (T6, 20 m/s campaign). In the
+		// 5-10 m/s band the fans alone cannot trim the wing's wind
+		// moment (7 m/s headwind climb death), while above ~15 m/s
+		// the surfaces have full authority — hover in high wind IS
+		// aerodynamic flight at zero groundspeed. Blend the MC
+		// roll/pitch torque demands onto the elevons scaled by
+		// measured qbar so the surfaces contribute exactly as much
+		// as the airflow lets them: zero in calm air (bitwise-
+		// identical hover regression), full at the parameterized
+		// qbar. Yaw stays on the louver/fan path (no rudder).
+		const float cas = _airspeed_validated->calibrated_airspeed_m_s;
+		const float qbar = 0.5f * 1.225f * cas * cas;
+		const float blend = math::constrain(qbar / _param_vt_dia_elev_qbar.get(), 0.f, 1.f);
+
+		_torque_setpoint_1->xyz[0] = _vehicle_torque_setpoint_virtual_mc->xyz[0] * blend;
+		_torque_setpoint_1->xyz[1] = _vehicle_torque_setpoint_virtual_mc->xyz[1] * blend;
 	}
 
 	// Diamond transition attitude hold, applied directly at the torque
