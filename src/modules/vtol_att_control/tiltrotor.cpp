@@ -434,8 +434,15 @@ void Tiltrotor::fill_actuator_outputs()
 		_torque_setpoint_1->xyz[1] = _vehicle_torque_setpoint_virtual_fw->xyz[1];
 		_torque_setpoint_1->xyz[2] = _vehicle_torque_setpoint_virtual_fw->xyz[2];
 
-	} else if (_param_vt_dia_elev_qbar.get() > FLT_EPSILON
+	} else if (_vtol_mode == vtol_mode::MC_MODE
+		   && _param_vt_dia_elev_qbar.get() > FLT_EPSILON
 		   && PX4_ISFINITE(_airspeed_validated->calibrated_airspeed_m_s)) {
+		// MC_MODE ONLY: the transition phases run the tuned fw_att
+		// hybrid loop with elevons locked (T3-2) — injecting a second
+		// MC-driven elevon path there double-acts the surfaces at
+		// full blend (~220 Pa at the P2 exit) and re-broke the calm
+		// transition (T6 L3b: pitch impulse before the wind even
+		// switched on).
 		// Wind-hover elevon assist (T6, 20 m/s campaign). In the
 		// 5-10 m/s band the fans alone cannot trim the wing's wind
 		// moment (7 m/s headwind climb death), while above ~15 m/s
