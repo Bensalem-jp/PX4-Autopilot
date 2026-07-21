@@ -453,12 +453,20 @@ void Tiltrotor::fill_actuator_outputs()
 		// as the airflow lets them: zero in calm air (bitwise-
 		// identical hover regression), full at the parameterized
 		// qbar. Yaw stays on the louver/fan path (no rudder).
+		// Pass the FULL MC demand: the surfaces' physical authority
+		// already scales with qbar (the aerodynamics IS the blend).
+		// Scaling the demand too double-attenuates — at 8.7 m/s the
+		// first implementation delivered ~blend^2 ~ 1 Nm and the
+		// climb still pitched over (T6 hover-8.7 first attempt). The
+		// qbar param now acts only as an enable threshold: below
+		// ~2 m/s airspeed the deflections are pointless servo wear.
 		const float cas = _airspeed_validated->calibrated_airspeed_m_s;
 		const float qbar = 0.5f * 1.225f * cas * cas;
-		const float blend = math::constrain(qbar / _param_vt_dia_elev_qbar.get(), 0.f, 1.f);
 
-		_torque_setpoint_1->xyz[0] = _vehicle_torque_setpoint_virtual_mc->xyz[0] * blend;
-		_torque_setpoint_1->xyz[1] = _vehicle_torque_setpoint_virtual_mc->xyz[1] * blend;
+		if (qbar > 0.01f * _param_vt_dia_elev_qbar.get()) {
+			_torque_setpoint_1->xyz[0] = _vehicle_torque_setpoint_virtual_mc->xyz[0];
+			_torque_setpoint_1->xyz[1] = _vehicle_torque_setpoint_virtual_mc->xyz[1];
+		}
 	}
 
 	// Diamond transition attitude hold, applied directly at the torque
