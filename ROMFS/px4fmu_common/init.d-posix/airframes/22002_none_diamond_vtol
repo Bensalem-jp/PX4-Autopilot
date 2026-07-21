@@ -137,7 +137,11 @@ param set PWM_MAIN_FUNC10 206
 
 # --- VTOL transition schedule (T1-validated) ---
 param set VT_TYPE 1
-param set VT_ARSP_TRANS 15
+# 14 (was 15): at 10 m/s headwind the P1 plateau equilibrium sits at
+# ~14.8 m/s airspeed — 0.2 short of the old gate — and the vehicle
+# held a PERFECT plateau until VT_TRANS_TIMEOUT aborted it (T7
+# hover-10). Stall margin is ample; P2 accelerates through 15 anyway.
+param set VT_ARSP_TRANS 14
 # Cruise 2 m/s above the transition speed: bank-induced airspeed dips
 # otherwise drive TECS underspeed pitch-downs (the 20-30 m altitude
 # pumps at each turn, runs 17/19).
@@ -152,7 +156,9 @@ param set VT_BT_TILT_DUR 0.5
 param set VT_FW_MIN_ALT 0
 # Plateau Fx ~6 N at hover trim -> ~0.5 m/s^2: 15 m/s needs ~30 s.
 # Default 15 s would quad-chute mid-acceleration.
-param set VT_TRANS_TIMEOUT 60
+# 90 (was 60): high-wind plateaus are slow to build airspeed; aborting
+# a stable plateau by timer is strictly worse than waiting.
+param set VT_TRANS_TIMEOUT 90
 # P2 diverter ramp slowed: the default 0.5 s full-open step kicked a
 # pitch-trim transient past 30 deg (run 29). 2.5 s lets the attitude
 # hold track the changing trim as the wing takes the load.
