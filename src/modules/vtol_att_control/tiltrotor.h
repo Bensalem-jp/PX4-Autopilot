@@ -116,6 +116,9 @@ private:
 	hrt_abstime _dst_bias_last_us{0};
 	// Wind-descent mode latch (bias + collective floor share it).
 	bool _dst_mode_active{false};
+	// Set when the back transition completes; the wind unload runs
+	// from the first post-BT MC cycle (racing the MPC thrust cut).
+	bool _post_bt_mc{false};
 
 
 	DEFINE_PARAMETERS_CUSTOM_PARENT(VtolType,

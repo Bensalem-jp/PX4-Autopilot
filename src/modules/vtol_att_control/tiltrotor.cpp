@@ -120,6 +120,13 @@ void Tiltrotor::update_vtol_state()
 
 			if (exit_backtransition_tilt_condition && (exit_backtransition_speed_condition || exit_backtransition_time_condition)) {
 				_vtol_mode = vtol_mode::MC_MODE;
+				// T10: arm the wind unload from the first MC
+				// cycle after the back transition — waiting for
+				// the LAND item loses the race against the MPC
+				// thrust cut (lf dies in 5-8 s, the slewed bias
+				// needs 7+; the authority death frees the static
+				// instability, nose-up 25 deg runaway).
+				_post_bt_mc = true;
 			}
 
 			break;
@@ -132,6 +139,7 @@ void Tiltrotor::update_vtol_state()
 			// initialise a front transition
 			resetTransitionStates();
 			_pitch_quiet_since = 0;
+			_post_bt_mc = false;
 			_transition_start_yaw = Eulerf(Quatf(_v_att->q)).psi();
 			_vtol_mode = vtol_mode::TRANSITION_FRONT_P1;
 			break;
@@ -274,7 +282,7 @@ void Tiltrotor::update_mc_state()
 		const float cas_dst = _airspeed_validated->calibrated_airspeed_m_s;
 		const float qbar_dst = 0.5f * 1.225f * cas_dst * cas_dst;
 
-		_dst_mode_active = (descending && qbar_dst > 20.f
+		_dst_mode_active = ((descending || _post_bt_mc) && qbar_dst > 20.f
 				    && distToGround() > _param_mpc_land_alt1.get());
 
 		if (_dst_mode_active) {
