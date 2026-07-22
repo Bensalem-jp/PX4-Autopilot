@@ -51,7 +51,7 @@ using namespace matrix;
 #define DIAMOND_SREF_M2 1.404f
 #define DIAMOND_CLA_RAD 4.1f
 #define DIAMOND_FLARE_CAP_N 40.f
-#define DIAMOND_UNLOAD_TARGET_N 30.f
+#define DIAMOND_UNLOAD_TARGET_N 55.f
 #define BACKTRANS_THROTTLE_DOWNRAMP_DUR_S 0.5f
 #define BACKTRANS_THROTTLE_UPRAMP_DUR_S 0.5f
 
@@ -535,19 +535,11 @@ void Tiltrotor::fill_actuator_outputs()
 	} else {
 		collective_thrust_normalized_setpoint = -_vehicle_thrust_setpoint_virtual_mc->xyz[2] * _mc_throttle_weight;
 
-		// Wind-descent authority floor (T10): the wing-carry standoff
-		// swings the vertical loop to near-zero collective, fan
-		// attitude authority scales with collective, and the
-		// statically unstable airframe departs uncontrolled (q -3.2
-		// to -4.2 rad/s across the honest-gate runs). Floor the
-		// collective while the descent bias unloads the wing: the
-		// descent equilibrium sits near 0.6 collective, so the floor
-		// only catches the destabilizing transients.
-		if (_dst_mode_active) {
-			collective_thrust_normalized_setpoint =
-				math::max(collective_thrust_normalized_setpoint, 0.30f);
-		}
-
+		// (T10: a hard collective floor here fought the MPC vertical
+		// loop into a 2 Hz roll limit cycle — lf railing 0/0.3/0.8
+		// antiphase. The deep-unload bias makes the floor unnecessary:
+		// with the wing at net DOWNFORCE the fans carry more than
+		// weight, collective sits high and authority is maximal.)
 		_thrust_setpoint_0->xyz[2] = -collective_thrust_normalized_setpoint;
 	}
 
