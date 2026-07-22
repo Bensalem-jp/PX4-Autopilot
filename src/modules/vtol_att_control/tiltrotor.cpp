@@ -45,6 +45,13 @@
 using namespace matrix;
 
 #define FRONTTRANS_THR_MIN 0.25f
+// Diamond wing constants for qbar-scaled attitude limits (T10).
+// NOTE diamond-specific (like the effectiveness class); revisit at the
+// NG swap (S 1.3035, CLa from the NG polar).
+#define DIAMOND_SREF_M2 1.404f
+#define DIAMOND_CLA_RAD 4.1f
+#define DIAMOND_FLARE_CAP_N 40.f
+#define DIAMOND_UNLOAD_TARGET_N 25.f
 #define BACKTRANS_THROTTLE_DOWNRAMP_DUR_S 0.5f
 #define BACKTRANS_THROTTLE_UPRAMP_DUR_S 0.5f
 
@@ -268,7 +275,13 @@ void Tiltrotor::update_mc_state()
 		const float qbar_dst = 0.5f * 1.225f * cas_dst * cas_dst;
 
 		if (descending && qbar_dst > 20.f && distToGround() > _param_mpc_land_alt1.get()) {
-			const float pitch_bias = -math::radians(_param_vt_dia_dst_p.get());
+			// Force-scaled, not fixed-angle: -4 deg at 245 Pa is
+			// -102 N of downforce (beyond the fan margin). Target
+			// DIAMOND_UNLOAD_TARGET_N of wing unload; the param
+			// caps the angle at low qbar.
+			const float pitch_bias = -math::min(
+					math::radians(_param_vt_dia_dst_p.get()),
+					DIAMOND_UNLOAD_TARGET_N / (qbar_dst * DIAMOND_SREF_M2 * DIAMOND_CLA_RAD));
 			const Eulerf euler_dst(Quatf(_v_att_sp->q_d));
 
 			if (euler_dst.theta() > pitch_bias) {
@@ -407,7 +420,28 @@ void Tiltrotor::update_transition_state()
 
 		// control backtransition deceleration using pitch.
 		if (_v_control_mode->flag_control_climb_rate_enabled) {
-			_v_att_sp->pitch_body = update_and_get_backtransition_pitch_sp();
+			float bt_pitch = update_and_get_backtransition_pitch_sp();
+
+			// Back-transition flare cap in wind (T10): the decel
+			// flare (+17 deg SP, ulog 04_37_29) is calm-normal,
+			// but at 245 Pa that alpha explodes the wing lift to
+			// ~2x weight -> balloon + departure BEFORE the LAND
+			// item can engage the descent bias. Cap the commanded
+			// alpha so the flare adds at most DIAMOND_FLARE_CAP_N
+			// of lift; at high qbar the drag decelerates the
+			// vehicle regardless.
+			if (PX4_ISFINITE(_airspeed_validated->calibrated_airspeed_m_s)) {
+				const float cas_bt = _airspeed_validated->calibrated_airspeed_m_s;
+				const float qbar_bt = 0.5f * 1.225f * cas_bt * cas_bt;
+
+				if (qbar_bt > 20.f) {
+					const float pitch_cap = DIAMOND_FLARE_CAP_N
+								/ (qbar_bt * DIAMOND_SREF_M2 * DIAMOND_CLA_RAD);
+					bt_pitch = math::min(bt_pitch, pitch_cap);
+				}
+			}
+
+			_v_att_sp->pitch_body = bt_pitch;
 		}
 
 		if (_time_since_trans_start < BACKTRANS_THROTTLE_DOWNRAMP_DUR_S) {
