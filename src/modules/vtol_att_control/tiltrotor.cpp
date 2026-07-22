@@ -253,6 +253,33 @@ void Tiltrotor::update_mc_state()
 		}
 	}
 
+	// Airborne MC nose-up cap (T10 round 3). The back-transition
+	// flare cap moved the balloon one phase later: the MC position
+	// controller then braked the residual groundspeed with +11.7 deg
+	// nose-up (ulog 04_47_42) — any nose-up alpha at 245 Pa lifts
+	// multiples of the fan margin. Mirror of VT_PITCH_MIN: clamp the
+	// airborne MC pitch setpoint nose-UP at the qbar-scaled alpha
+	// that adds DIAMOND_FLARE_CAP_N of wing lift; the headwind drag
+	// does the braking instead. Ground/rotation phases are exempt
+	// (the takeoff rotation block below runs later and overrides).
+	if (PX4_ISFINITE(_airspeed_validated->calibrated_airspeed_m_s)
+	    && distToGround() > _param_mpc_land_alt1.get()) {
+		const float cas_cap = _airspeed_validated->calibrated_airspeed_m_s;
+		const float qbar_cap = 0.5f * 1.225f * cas_cap * cas_cap;
+
+		if (qbar_cap > 20.f) {
+			const float pitch_up_cap = DIAMOND_FLARE_CAP_N
+						   / (qbar_cap * DIAMOND_SREF_M2 * DIAMOND_CLA_RAD);
+			const Eulerf euler_cap(Quatf(_v_att_sp->q_d));
+
+			if (euler_cap.theta() > pitch_up_cap) {
+				const Quatf q_cap(Eulerf(euler_cap.phi(), pitch_up_cap, euler_cap.psi()));
+				q_cap.copyTo(_v_att_sp->q_d);
+				_v_att_sp->pitch_body = pitch_up_cap;
+			}
+		}
+	}
+
 	// Descent wing-unload bias (T10), the mirror of the takeoff
 	// rotation. Descending through strong wind in MC the wing carries
 	// the vehicle (245 Pa at 20 m/s): the vertical loop cannot push
