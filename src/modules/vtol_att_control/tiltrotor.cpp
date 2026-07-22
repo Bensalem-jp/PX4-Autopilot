@@ -420,28 +420,7 @@ void Tiltrotor::update_transition_state()
 
 		// control backtransition deceleration using pitch.
 		if (_v_control_mode->flag_control_climb_rate_enabled) {
-			float bt_pitch = update_and_get_backtransition_pitch_sp();
-
-			// Back-transition flare cap in wind (T10): the decel
-			// flare (+17 deg SP, ulog 04_37_29) is calm-normal,
-			// but at 245 Pa that alpha explodes the wing lift to
-			// ~2x weight -> balloon + departure BEFORE the LAND
-			// item can engage the descent bias. Cap the commanded
-			// alpha so the flare adds at most DIAMOND_FLARE_CAP_N
-			// of lift; at high qbar the drag decelerates the
-			// vehicle regardless.
-			if (PX4_ISFINITE(_airspeed_validated->calibrated_airspeed_m_s)) {
-				const float cas_bt = _airspeed_validated->calibrated_airspeed_m_s;
-				const float qbar_bt = 0.5f * 1.225f * cas_bt * cas_bt;
-
-				if (qbar_bt > 20.f) {
-					const float pitch_cap = DIAMOND_FLARE_CAP_N
-								/ (qbar_bt * DIAMOND_SREF_M2 * DIAMOND_CLA_RAD);
-					bt_pitch = math::min(bt_pitch, pitch_cap);
-				}
-			}
-
-			_v_att_sp->pitch_body = bt_pitch;
+			_v_att_sp->pitch_body = update_and_get_backtransition_pitch_sp();
 		}
 
 		if (_time_since_trans_start < BACKTRANS_THROTTLE_DOWNRAMP_DUR_S) {
