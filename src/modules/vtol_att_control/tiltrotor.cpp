@@ -300,7 +300,19 @@ void Tiltrotor::update_mc_state()
 					(now_dst - _dst_bias_last_us) * 1e-6f, 0.f, 0.1f);
 			_dst_bias_last_us = now_dst;
 			const float slew_step = math::radians(0.5f) * dt_dst;
-			_dst_bias_state = math::max(_dst_bias_state - slew_step, pitch_target);
+
+			// Two-way slew. The one-way form (max(state-step,
+			// target)) was a ratchet: transient qbar dips deepen
+			// the target momentarily and the state never shallows
+			// back — the hold equilibrium walked into the upper
+			// collective rail (lf 0.75->0.96 over 35 s at 9.4 m)
+			// and the authority death departed the vehicle.
+			if (_dst_bias_state > pitch_target) {
+				_dst_bias_state = math::max(_dst_bias_state - slew_step, pitch_target);
+
+			} else {
+				_dst_bias_state = math::min(_dst_bias_state + slew_step, pitch_target);
+			}
 			const Eulerf euler_dst(Quatf(_v_att_sp->q_d));
 
 			if (euler_dst.theta() > _dst_bias_state) {
