@@ -114,6 +114,8 @@ private:
 	// Slewed descent wing-unload bias (T10); 0 when inactive.
 	float _dst_bias_state{0.f};
 	hrt_abstime _dst_bias_last_us{0};
+	// Wind-descent mode latch (bias + collective floor share it).
+	bool _dst_mode_active{false};
 
 
 	DEFINE_PARAMETERS_CUSTOM_PARENT(VtolType,

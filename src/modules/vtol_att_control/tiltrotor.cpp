@@ -274,7 +274,10 @@ void Tiltrotor::update_mc_state()
 		const float cas_dst = _airspeed_validated->calibrated_airspeed_m_s;
 		const float qbar_dst = 0.5f * 1.225f * cas_dst * cas_dst;
 
-		if (descending && qbar_dst > 20.f && distToGround() > _param_mpc_land_alt1.get()) {
+		_dst_mode_active = (descending && qbar_dst > 20.f
+				    && distToGround() > _param_mpc_land_alt1.get());
+
+		if (_dst_mode_active) {
 			// Small target + slew. The ulogs bracketed it: actual
 			// alpha -0.5..-1 deg already descends at 0.74 m/s, while
 			// a stepped -4 deg SP overshot to -12 deg actual and the
@@ -301,6 +304,10 @@ void Tiltrotor::update_mc_state()
 		} else {
 			_dst_bias_state = 0.f;
 		}
+
+	} else {
+		_dst_mode_active = false;
+		_dst_bias_state = 0.f;
 	}
 }
 
@@ -527,6 +534,20 @@ void Tiltrotor::fill_actuator_outputs()
 
 	} else {
 		collective_thrust_normalized_setpoint = -_vehicle_thrust_setpoint_virtual_mc->xyz[2] * _mc_throttle_weight;
+
+		// Wind-descent authority floor (T10): the wing-carry standoff
+		// swings the vertical loop to near-zero collective, fan
+		// attitude authority scales with collective, and the
+		// statically unstable airframe departs uncontrolled (q -3.2
+		// to -4.2 rad/s across the honest-gate runs). Floor the
+		// collective while the descent bias unloads the wing: the
+		// descent equilibrium sits near 0.6 collective, so the floor
+		// only catches the destabilizing transients.
+		if (_dst_mode_active) {
+			collective_thrust_normalized_setpoint =
+				math::max(collective_thrust_normalized_setpoint, 0.30f);
+		}
+
 		_thrust_setpoint_0->xyz[2] = -collective_thrust_normalized_setpoint;
 	}
 
