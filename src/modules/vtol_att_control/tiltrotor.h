@@ -111,6 +111,9 @@ private:
 	hrt_abstime _pitch_quiet_since{0};
 	// Heading captured at front-transition start (P1 yaw pin)
 	float _transition_start_yaw{0.f};
+	// Slewed descent wing-unload bias (T10); 0 when inactive.
+	float _dst_bias_state{0.f};
+	hrt_abstime _dst_bias_last_us{0};
 
 
 	DEFINE_PARAMETERS_CUSTOM_PARENT(VtolType,

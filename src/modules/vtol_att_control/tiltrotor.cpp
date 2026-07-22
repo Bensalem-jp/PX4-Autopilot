@@ -51,7 +51,7 @@ using namespace matrix;
 #define DIAMOND_SREF_M2 1.404f
 #define DIAMOND_CLA_RAD 4.1f
 #define DIAMOND_FLARE_CAP_N 40.f
-#define DIAMOND_UNLOAD_TARGET_N 70.f
+#define DIAMOND_UNLOAD_TARGET_N 30.f
 #define BACKTRANS_THROTTLE_DOWNRAMP_DUR_S 0.5f
 #define BACKTRANS_THROTTLE_UPRAMP_DUR_S 0.5f
 
@@ -275,20 +275,31 @@ void Tiltrotor::update_mc_state()
 		const float qbar_dst = 0.5f * 1.225f * cas_dst * cas_dst;
 
 		if (descending && qbar_dst > 20.f && distToGround() > _param_mpc_land_alt1.get()) {
-			// Force-scaled, not fixed-angle: -4 deg at 245 Pa is
-			// -102 N of downforce (beyond the fan margin). Target
-			// DIAMOND_UNLOAD_TARGET_N of wing unload; the param
-			// caps the angle at low qbar.
-			const float pitch_bias = -math::min(
+			// Small target + slew. The ulogs bracketed it: actual
+			// alpha -0.5..-1 deg already descends at 0.74 m/s, while
+			// a stepped -4 deg SP overshot to -12 deg actual and the
+			// static instability (~40 Nm at 138 Pa > fan authority)
+			// blew the pitch rate (q -4.2 rad/s, honest-gate run).
+			const float pitch_target = -math::min(
 					math::radians(_param_vt_dia_dst_p.get()),
 					DIAMOND_UNLOAD_TARGET_N / (qbar_dst * DIAMOND_SREF_M2 * DIAMOND_CLA_RAD));
+			// 0.5 deg/s slew from level; reset when inactive.
+			const hrt_abstime now_dst = hrt_absolute_time();
+			const float dt_dst = math::constrain(
+					(now_dst - _dst_bias_last_us) * 1e-6f, 0.f, 0.1f);
+			_dst_bias_last_us = now_dst;
+			const float slew_step = math::radians(0.5f) * dt_dst;
+			_dst_bias_state = math::max(_dst_bias_state - slew_step, pitch_target);
 			const Eulerf euler_dst(Quatf(_v_att_sp->q_d));
 
-			if (euler_dst.theta() > pitch_bias) {
-				const Quatf q_dst(Eulerf(euler_dst.phi(), pitch_bias, euler_dst.psi()));
+			if (euler_dst.theta() > _dst_bias_state) {
+				const Quatf q_dst(Eulerf(euler_dst.phi(), _dst_bias_state, euler_dst.psi()));
 				q_dst.copyTo(_v_att_sp->q_d);
-				_v_att_sp->pitch_body = pitch_bias;
+				_v_att_sp->pitch_body = _dst_bias_state;
 			}
+
+		} else {
+			_dst_bias_state = 0.f;
 		}
 	}
 }
