@@ -117,6 +117,7 @@ private:
 					(ParamFloat<px4::params::VT_DIA_ELEV_QB>) _param_vt_dia_elev_qbar,
 					(ParamFloat<px4::params::VT_DIA_ELEV_QC>) _param_vt_dia_elev_qcap,
 					(ParamFloat<px4::params::VT_DIA_ROT_P>) _param_vt_dia_rot_p,
+					(ParamFloat<px4::params::VT_DIA_DST_P>) _param_vt_dia_dst_p,
 					(ParamFloat<px4::params::VT_DIA_PQ_ANG>) _param_vt_dia_pq_ang,
 					(ParamFloat<px4::params::VT_DIA_PQ_RATE>) _param_vt_dia_pq_rate,
 					(ParamFloat<px4::params::VT_DIA_PQ_T>) _param_vt_dia_pq_t,

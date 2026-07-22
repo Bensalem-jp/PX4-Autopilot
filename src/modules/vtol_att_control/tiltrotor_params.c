@@ -189,3 +189,20 @@ PARAM_DEFINE_FLOAT(VT_DIA_ELEV_QC, 0.0f);
  * @group VTOL Attitude Control
  */
 PARAM_DEFINE_FLOAT(VT_DIA_ROT_P, 0.0f);
+
+/**
+ * Diamond wind-descent wing-unload pitch bias
+ *
+ * While descending (LAND or climb-rate-only mode) in meaningful
+ * airflow above MPC_LAND_ALT1, hold the attitude setpoint at this
+ * nose-DOWN pitch: the wing unloads and the fans regain descent
+ * authority (in strong wind the vertical loop otherwise throttles
+ * to zero chasing a descent the wing refuses, then departs).
+ * 0 disables (calm boot state; the runner stages it for wind runs).
+ *
+ * @unit deg
+ * @min 0.0
+ * @max 10.0
+ * @group VTOL Attitude Control
+ */
+PARAM_DEFINE_FLOAT(VT_DIA_DST_P, 0.0f);

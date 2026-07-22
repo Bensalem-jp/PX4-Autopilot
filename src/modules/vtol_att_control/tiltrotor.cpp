@@ -245,6 +245,39 @@ void Tiltrotor::update_mc_state()
 			_tilt_control = math::max(_tilt_control, 0.15f);
 		}
 	}
+
+	// Descent wing-unload bias (T10), the mirror of the takeoff
+	// rotation. Descending through strong wind in MC the wing carries
+	// the vehicle (245 Pa at 20 m/s): the vertical loop cannot push
+	// DOWN, throttles to near zero chasing the descent and the
+	// vehicle finally departs and free-falls (32.8 m drop, ulog
+	// 04_23_48). Bias the attitude setpoint nose-DOWN so the wing
+	// unloads (CL(-4 deg) ~ -60 N at 245 Pa) and the fans get their
+	// descent margin back. Runs AFTER pusher_assist so it overrides
+	// the VT_LND_PITCH_MIN clamp during the descent; the pusher tilt
+	// keeps carrying the drag. VT_DIA_DST_P = nose-down bias in deg,
+	// 0 disables (calm boot state; the runner stages it for wind).
+	if (_param_vt_dia_dst_p.get() > FLT_EPSILON
+	    && PX4_ISFINITE(_airspeed_validated->calibrated_airspeed_m_s)) {
+		const bool descending = _v_control_mode->flag_control_auto_enabled
+					&& ((_attc->get_pos_sp_triplet()->current.valid
+					     && _attc->get_pos_sp_triplet()->current.type == position_setpoint_s::SETPOINT_TYPE_LAND)
+					    || (_v_control_mode->flag_control_climb_rate_enabled
+						&& !_v_control_mode->flag_control_altitude_enabled));
+		const float cas_dst = _airspeed_validated->calibrated_airspeed_m_s;
+		const float qbar_dst = 0.5f * 1.225f * cas_dst * cas_dst;
+
+		if (descending && qbar_dst > 20.f && distToGround() > _param_mpc_land_alt1.get()) {
+			const float pitch_bias = -math::radians(_param_vt_dia_dst_p.get());
+			const Eulerf euler_dst(Quatf(_v_att_sp->q_d));
+
+			if (euler_dst.theta() > pitch_bias) {
+				const Quatf q_dst(Eulerf(euler_dst.phi(), pitch_bias, euler_dst.psi()));
+				q_dst.copyTo(_v_att_sp->q_d);
+				_v_att_sp->pitch_body = pitch_bias;
+			}
+		}
+	}
 }
 
 void Tiltrotor::update_fw_state()
