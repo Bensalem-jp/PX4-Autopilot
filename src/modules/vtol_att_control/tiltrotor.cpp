@@ -637,13 +637,21 @@ void Tiltrotor::fill_actuator_outputs()
 
 	} else if (_vtol_mode == vtol_mode::MC_MODE
 		   && _param_vt_dia_elev_qbar.get() > FLT_EPSILON
-		   && distToGround() > _param_mpc_land_alt1.get()
+		   && distToGround() > DIAMOND_UNLOAD_FLOOR_M
 		   && PX4_ISFINITE(_airspeed_validated->calibrated_airspeed_m_s)) {
 		// Grounded gate: on the ground in high wind the MC attitude
 		// demands rail the elevons against the fixed gear stance; at
 		// 138 Pa the surface downforce (~tens of N) exceeds the static
 		// thrust margin and pins the takeoff (T7 15 m/s runs 1/3,
 		// proven by the elevon-off A/B run 4 which lifted cleanly).
+		// Floor at 0.3 m (parked stance = dist ~0, still covered),
+		// NOT MPC_LAND_ALT1: the 2 m gate killed the landing LPF
+		// pitch trim below 2 m — the fans railed at their -9.37
+		// ceiling against aero +8.8 and the vehicle hover-pinned at
+		// 1.4 m unable to modulate weight (ladder-10 r1). Worse, the
+		// starved attitude sagged to -6.3 deg and the railed 140 N
+		// collective tilted into +15 N of UPWIND drive, holding qbar
+		// at 230 Pa in a self-sustaining ratchet.
 		// Altitude gate, NOT the land detector: at pinned full
 		// thrust the detector de-asserts landed (low-thrust test)
 		// while the vehicle is physically on its gear — the !landed
