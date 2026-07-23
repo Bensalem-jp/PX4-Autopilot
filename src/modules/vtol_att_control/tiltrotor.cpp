@@ -655,8 +655,23 @@ void Tiltrotor::fill_actuator_outputs()
 			// authority at the validated level. 0 disables the cap.
 			const float q_cap = _param_vt_dia_elev_qcap.get();
 			const float gain = (q_cap > FLT_EPSILON && qbar > q_cap) ? (q_cap / qbar) : 1.f;
-			_torque_setpoint_1->xyz[0] = gain * _vehicle_torque_setpoint_virtual_mc->xyz[0];
-			_torque_setpoint_1->xyz[1] = gain * _vehicle_torque_setpoint_virtual_mc->xyz[1];
+			// Collective-aware weight (T11 crawl departure). Pitch
+			// trim on this airframe IS collective — both lift fans
+			// sit 0.067 m aft of the CG, so the wing's nose-up wind
+			// moment is trimmed by raising BOTH fans. At 226 Pa the
+			// trim demand railed the pair at 1.00 (aero +8 Nm ~ fan
+			// authority ceiling 9.4), the surplus lift ballooned the
+			// vehicle and the differential authority died (ladder-2
+			// r1/r2 deterministic reason=3). The elevons are the
+			// only spare nose-down actuator in that corner — but at
+			// LOW collective they are the T10 descent roll-killer.
+			// Ramp the assist over collective 0.45 -> 0.60: descent
+			// (lf ~0.3) keeps them dead, the drift-brake crawl
+			// (lf ~0.85) gets full surface authority.
+			const float coll = -_vehicle_thrust_setpoint_virtual_mc->xyz[2];
+			const float lf_w = math::constrain((coll - 0.45f) / 0.15f, 0.f, 1.f);
+			_torque_setpoint_1->xyz[0] = lf_w * gain * _vehicle_torque_setpoint_virtual_mc->xyz[0];
+			_torque_setpoint_1->xyz[1] = lf_w * gain * _vehicle_torque_setpoint_virtual_mc->xyz[1];
 		}
 	}
 
