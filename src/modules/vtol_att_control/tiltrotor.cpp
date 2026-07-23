@@ -60,6 +60,10 @@ using namespace matrix;
 // death: lf 0.00 kills differential AND the surface gate at once).
 // Trim anchor: cruise CL 0.35 at alpha ~4 deg -> CL0 ~ 0.06.
 #define DIAMOND_CL0 0.06f
+// Wing-unload altitude floor (m). See _dst_mode_active: gating at
+// MPC_LAND_ALT1 pinned a 0.2 Hz balloon limit cycle on the 2 m
+// boundary (ladders 8/9).
+#define DIAMOND_UNLOAD_FLOOR_M 0.3f
 #define BACKTRANS_THROTTLE_DOWNRAMP_DUR_S 0.5f
 #define BACKTRANS_THROTTLE_UPRAMP_DUR_S 0.5f
 
@@ -304,8 +308,16 @@ void Tiltrotor::update_mc_state()
 		const float cas_dst = _airspeed_validated->calibrated_airspeed_m_s;
 		const float qbar_dst = 0.5f * 1.225f * cas_dst * cas_dst;
 
+		// Floor at 0.3 m, NOT MPC_LAND_ALT1: gating the unload at
+		// ALT1 built a 0.2 Hz limit cycle pinned ON the 2 m
+		// boundary — crossing down kills the bias, the wing
+		// re-loads and balloons the vehicle back to 5 m, the bias
+		// re-engages and it descends again (ladders 8/9: the last
+		// 2 m were unreachable for 100+ s at lf 1.00). The bias on
+		// the gear is harmless: LNDMC + disarm cuts it, and the
+		// land detector's 5 s trigger outlasts the slew release.
 		_dst_mode_active = ((descending || _post_bt_mc) && qbar_dst > 20.f
-				    && distToGround() > _param_mpc_land_alt1.get());
+				    && distToGround() > DIAMOND_UNLOAD_FLOOR_M);
 
 		if (_dst_mode_active) {
 			// Small target + slew. The ulogs bracketed it: actual
