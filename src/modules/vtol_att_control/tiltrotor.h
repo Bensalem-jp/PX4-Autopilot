@@ -121,6 +121,11 @@ private:
 	bool _post_bt_mc{false};
 	// Rate limiter for the BT exit-gate diagnostic print (1 Hz).
 	hrt_abstime _bt_gate_log_ts{0};
+	// Low-pass state for the landing-regime elevon pitch DC-trim
+	// (0.5 s tau; kills the 12.5 Hz passthrough flap while the
+	// surfaces carry the slow wing-moment trim).
+	float _elev_trim_state{0.f};
+	hrt_abstime _elev_trim_last_us{0};
 
 
 	DEFINE_PARAMETERS_CUSTOM_PARENT(VtolType,

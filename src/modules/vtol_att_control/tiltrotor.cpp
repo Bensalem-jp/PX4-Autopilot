@@ -671,29 +671,38 @@ void Tiltrotor::fill_actuator_outputs()
 			// authority at the validated level. 0 disables the cap.
 			const float q_cap = _param_vt_dia_elev_qcap.get();
 			const float gain = (q_cap > FLT_EPSILON && qbar > q_cap) ? (q_cap / qbar) : 1.f;
-			// Landing regime (_dst_mode_active): surfaces fully OFF.
-			// Every arrangement that kept them live died in ladder
-			// forensics: roll passthrough is the T10 descent killer
-			// (p 2-4.9 rad/s), and pitch passthrough at crawl qbar
-			// (160-270 Pa) is DYNAMICALLY unstable — a ~12.5 Hz
-			// divergent flap (elevMy +-8 -> +-64 Nm over 2.5 s,
-			// ladder-4 r1). The QC cap fixes DC authority, not the
-			// phase/stiffness of the loop at 2-3x the validated
-			// qbar. The crawl's pitch-trim budget is instead kept
-			// inside the FAN ceiling by braking the drift harder
-			// (VT_FWD_THRUST_SC staged up for landing): at 1.5-2 m/s
-			// drift the wing moment (~6 Nm) trims on collective
-			// alone — the ladder-2 rail only appeared because the
-			// weak brake let the drift reach 4+ m/s (qbar 226+).
-			// Outside the landing regime the T7-validated takeoff /
-			// climb passthrough is unchanged.
+			// Landing regime (_dst_mode_active): surfaces carry the
+			// SLOW pitch trim only, roll stays fan-owned.
+			// Seven ladders bracketed this design:
+			//  - full pitch passthrough is a 12.5 Hz divergent flap
+			//    (elevMy +-8 -> +-64 Nm in 2.5 s, ladder-4);
+			//  - surfaces fully OFF starves the pitch trim: with the
+			//    fan arms 0.067 m (lift) vs 0.348 m (fwd), fan-only
+			//    trim rails the collective at qbar ~180-230 Pa and
+			//    the static instability departs (ladders 2/5/6),
+			//    and the fans saturate short of the unload alpha so
+			//    the descent stalls at wing +30 N (ladder-7);
+			//  - roll passthrough is the T10 descent killer.
+			// A 0.5 s low-pass delivers the DC wing-moment trim
+			// (frees the collective for weight + differential) while
+			// attenuating the 12.5 Hz loop by ~32 dB.
 			if (_dst_mode_active) {
+				const hrt_abstime now_lpf = hrt_absolute_time();
+				const float dt_lpf = math::constrain(
+						(now_lpf - _elev_trim_last_us) * 1e-6f, 0.f, 0.1f);
+				_elev_trim_last_us = now_lpf;
+				const float alpha_lpf = dt_lpf / (0.5f + dt_lpf);
+				_elev_trim_state += alpha_lpf
+						    * (gain * _vehicle_torque_setpoint_virtual_mc->xyz[1] - _elev_trim_state);
 				_torque_setpoint_1->xyz[0] = 0.f;
-				_torque_setpoint_1->xyz[1] = 0.f;
+				_torque_setpoint_1->xyz[1] = _elev_trim_state;
 
 			} else {
 				_torque_setpoint_1->xyz[0] = gain * _vehicle_torque_setpoint_virtual_mc->xyz[0];
 				_torque_setpoint_1->xyz[1] = gain * _vehicle_torque_setpoint_virtual_mc->xyz[1];
+				// Bumpless entry into the landing regime.
+				_elev_trim_state = _torque_setpoint_1->xyz[1];
+				_elev_trim_last_us = hrt_absolute_time();
 			}
 		}
 	}
