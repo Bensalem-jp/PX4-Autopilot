@@ -119,6 +119,8 @@ private:
 	// Set when the back transition completes; the wind unload runs
 	// from the first post-BT MC cycle (racing the MPC thrust cut).
 	bool _post_bt_mc{false};
+	// Rate limiter for the BT exit-gate diagnostic print (1 Hz).
+	hrt_abstime _bt_gate_log_ts{0};
 
 
 	DEFINE_PARAMETERS_CUSTOM_PARENT(VtolType,

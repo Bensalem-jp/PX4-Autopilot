@@ -112,6 +112,20 @@ void Tiltrotor::update_vtol_state()
 				const Vector3f vel = R_to_body * Vector3f(_local_pos->vx, _local_pos->vy, _local_pos->vz);
 				exit_backtransition_speed_condition = vel(0) < _param_mpc_xy_cruise.get() ;
 
+				// Diamond diagnostic (1 Hz): the speed gate reads body-X
+				// velocity; log its sign/magnitude vs the exit decision
+				// (suspected always-true on this airframe -> BT exits by
+				// tilt alone, carrying residual groundspeed into MC).
+				if (hrt_elapsed_time(&_bt_gate_log_ts) > 1000000) {
+					_bt_gate_log_ts = hrt_absolute_time();
+					PX4_INFO("BT gate: vel0=%.2f xy_cruise=%.2f gs=%.2f tilt=%.2f speed_ok=%d t=%.1f",
+						 (double)vel(0), (double)_param_mpc_xy_cruise.get(),
+						 (double)sqrtf(_local_pos->vx * _local_pos->vx + _local_pos->vy * _local_pos->vy),
+						 (double)_tilt_control,
+						 exit_backtransition_speed_condition ? 1 : 0,
+						 (double)_time_since_trans_start);
+				}
+
 			} else if (PX4_ISFINITE(_airspeed_validated->calibrated_airspeed_m_s)) {
 				exit_backtransition_speed_condition = _airspeed_validated->calibrated_airspeed_m_s < _param_mpc_xy_cruise.get() ;
 			}
