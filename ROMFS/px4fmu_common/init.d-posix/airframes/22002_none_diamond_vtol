@@ -149,7 +149,7 @@ param set VT_ARSP_TRANS 15
 # pumps at each turn, runs 17/19).
 param set FW_AIRSPD_TRIM 17
 param set VT_TILT_TRANS 0.35
-param set VT_BT_TILT_DUR 1.5
+param set VT_BT_TILT_DUR 0.5
 # VT_FW_MIN_ALT 0 = DISABLED for SITL. The T3-0 value (5) mistranslated
 # the GT gate criterion 'alt LOSS < 5 m' into a minimum-altitude
 # quadchute: PX4 local altitude at the hover hold is only ~1.5 m
