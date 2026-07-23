@@ -52,14 +52,18 @@ using namespace matrix;
 #define DIAMOND_CLA_RAD 4.1f
 #define DIAMOND_FLARE_CAP_N 40.f
 #define DIAMOND_UNLOAD_TARGET_N 20.f
-// Zero-alpha lift coefficient. The unload target must overcome the
-// wing's level-attitude lift before it produces NET downforce: at
-// 226 Pa CL0 alone is +16 N up, and the CL0-less angle (-0.88 deg)
-// left net -4 N — the LAND descent stood off (alt -0.2 m in 4.5 s)
-// and the vertical loop cut collective to zero (ladder-3 r1 roll
-// death: lf 0.00 kills differential AND the surface gate at once).
-// Trim anchor: cruise CL 0.35 at alpha ~4 deg -> CL0 ~ 0.06.
-#define DIAMOND_CL0 0.06f
+// Zero-alpha lift coefficient OF THE POLAR (VSPAERO auto-refs
+// 1.154/1.154, the same normalization as DIAMOND_SREF/CLA here):
+// CL0 = -0.073 — NEGATIVE (reflexed section): this wing already
+// unloads itself at alpha 0, and the CL=0 point sits at ~+1.0 deg.
+// The first guess (+0.06, planform-normalized cruise anchor) had
+// the wrong sign AND the wrong refs: the unload then double-counted
+// the offset and commanded alpha -1.4..-2 deg = -47..-80 N at
+// 325 Pa instead of the -20 N target — every actuator saturated,
+// the fan-driven phugoid pumped an 8 m/s upwind remnant and the
+// vehicle porpoised at 0.4-3.6 m for the whole budget (ladder-13).
+// With the true CL0 the target lands at alpha ~ +0.4..+0.9 deg.
+#define DIAMOND_CL0 (-0.073f)
 // Wing-unload altitude floor (m). See _dst_mode_active: gating at
 // MPC_LAND_ALT1 pinned a 0.2 Hz balloon limit cycle on the 2 m
 // boundary (ladders 8/9).
