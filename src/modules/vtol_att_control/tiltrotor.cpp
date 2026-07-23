@@ -671,26 +671,30 @@ void Tiltrotor::fill_actuator_outputs()
 			// authority at the validated level. 0 disables the cap.
 			const float q_cap = _param_vt_dia_elev_qcap.get();
 			const float gain = (q_cap > FLT_EPSILON && qbar > q_cap) ? (q_cap / qbar) : 1.f;
-			// Split-axis gating (T11 landing forensics). The two
-			// landing killers live on DIFFERENT axes:
-			//  - PITCH needs the surfaces: trim on this airframe IS
-			//    collective (both lift fans 0.067 m aft of CG), and
-			//    at 226 Pa the trim demand railed the pair at 1.00
-			//    (aero +8 Nm ~ fan ceiling 9.4) — differential died
-			//    and the vehicle departed (ladder-2 r1/r2).
-			//  - ROLL on the surfaces is the T10 descent killer
-			//    (p 2-4.9 rad/s in every honest descent run), while
-			//    fan-differential roll works at any mid-band
-			//    collective. A collective-threshold gate instead
-			//    of this split died BOTH ways (ladder-3 r1: LAND
-			//    thrust cut -> lf 0.00 -> weight zeroed the
-			//    surfaces exactly when roll needed an owner).
-			// So: pitch passes whenever the qbar gate is open; roll
-			// passes only OUTSIDE the landing regime
-			// (_dst_mode_active), where T7 validated it.
-			_torque_setpoint_1->xyz[0] = _dst_mode_active
-					? 0.f : gain * _vehicle_torque_setpoint_virtual_mc->xyz[0];
-			_torque_setpoint_1->xyz[1] = gain * _vehicle_torque_setpoint_virtual_mc->xyz[1];
+			// Landing regime (_dst_mode_active): surfaces fully OFF.
+			// Every arrangement that kept them live died in ladder
+			// forensics: roll passthrough is the T10 descent killer
+			// (p 2-4.9 rad/s), and pitch passthrough at crawl qbar
+			// (160-270 Pa) is DYNAMICALLY unstable — a ~12.5 Hz
+			// divergent flap (elevMy +-8 -> +-64 Nm over 2.5 s,
+			// ladder-4 r1). The QC cap fixes DC authority, not the
+			// phase/stiffness of the loop at 2-3x the validated
+			// qbar. The crawl's pitch-trim budget is instead kept
+			// inside the FAN ceiling by braking the drift harder
+			// (VT_FWD_THRUST_SC staged up for landing): at 1.5-2 m/s
+			// drift the wing moment (~6 Nm) trims on collective
+			// alone — the ladder-2 rail only appeared because the
+			// weak brake let the drift reach 4+ m/s (qbar 226+).
+			// Outside the landing regime the T7-validated takeoff /
+			// climb passthrough is unchanged.
+			if (_dst_mode_active) {
+				_torque_setpoint_1->xyz[0] = 0.f;
+				_torque_setpoint_1->xyz[1] = 0.f;
+
+			} else {
+				_torque_setpoint_1->xyz[0] = gain * _vehicle_torque_setpoint_virtual_mc->xyz[0];
+				_torque_setpoint_1->xyz[1] = gain * _vehicle_torque_setpoint_virtual_mc->xyz[1];
+			}
 		}
 	}
 
