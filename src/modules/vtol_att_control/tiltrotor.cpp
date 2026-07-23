@@ -52,6 +52,14 @@ using namespace matrix;
 #define DIAMOND_CLA_RAD 4.1f
 #define DIAMOND_FLARE_CAP_N 40.f
 #define DIAMOND_UNLOAD_TARGET_N 20.f
+// Zero-alpha lift coefficient. The unload target must overcome the
+// wing's level-attitude lift before it produces NET downforce: at
+// 226 Pa CL0 alone is +16 N up, and the CL0-less angle (-0.88 deg)
+// left net -4 N — the LAND descent stood off (alt -0.2 m in 4.5 s)
+// and the vertical loop cut collective to zero (ladder-3 r1 roll
+// death: lf 0.00 kills differential AND the surface gate at once).
+// Trim anchor: cruise CL 0.35 at alpha ~4 deg -> CL0 ~ 0.06.
+#define DIAMOND_CL0 0.06f
 #define BACKTRANS_THROTTLE_DOWNRAMP_DUR_S 0.5f
 #define BACKTRANS_THROTTLE_UPRAMP_DUR_S 0.5f
 
@@ -305,15 +313,23 @@ void Tiltrotor::update_mc_state()
 			// a stepped -4 deg SP overshot to -12 deg actual and the
 			// static instability (~40 Nm at 138 Pa > fan authority)
 			// blew the pitch rate (q -4.2 rad/s, honest-gate run).
+			// NET-force targeting: include the CL0 offset so the
+			// commanded alpha actually reverses the wing force
+			// (target -20 N NET, not -20 N relative to a lift the
+			// formula pretended was zero). 226 Pa -> -1.6 deg.
 			const float pitch_target = -math::min(
 					math::radians(_param_vt_dia_dst_p.get()),
-					DIAMOND_UNLOAD_TARGET_N / (qbar_dst * DIAMOND_SREF_M2 * DIAMOND_CLA_RAD));
-			// 0.5 deg/s slew from level; reset when inactive.
+					(DIAMOND_UNLOAD_TARGET_N / (qbar_dst * DIAMOND_SREF_M2)
+					 + DIAMOND_CL0) / DIAMOND_CLA_RAD);
+			// 2 deg/s slew from level; reset when inactive. The
+			// original 0.5 deg/s lost the race against the LAND
+			// thrust cut (lf 0.64 -> 0.00 in 4.5 s while the bias
+			// was still shallowing through -0.4 deg).
 			const hrt_abstime now_dst = hrt_absolute_time();
 			const float dt_dst = math::constrain(
 					(now_dst - _dst_bias_last_us) * 1e-6f, 0.f, 0.1f);
 			_dst_bias_last_us = now_dst;
-			const float slew_step = math::radians(0.5f) * dt_dst;
+			const float slew_step = math::radians(2.0f) * dt_dst;
 
 			// Two-way slew. The one-way form (max(state-step,
 			// target)) was a ratchet: transient qbar dips deepen
@@ -655,23 +671,26 @@ void Tiltrotor::fill_actuator_outputs()
 			// authority at the validated level. 0 disables the cap.
 			const float q_cap = _param_vt_dia_elev_qcap.get();
 			const float gain = (q_cap > FLT_EPSILON && qbar > q_cap) ? (q_cap / qbar) : 1.f;
-			// Collective-aware weight (T11 crawl departure). Pitch
-			// trim on this airframe IS collective — both lift fans
-			// sit 0.067 m aft of the CG, so the wing's nose-up wind
-			// moment is trimmed by raising BOTH fans. At 226 Pa the
-			// trim demand railed the pair at 1.00 (aero +8 Nm ~ fan
-			// authority ceiling 9.4), the surplus lift ballooned the
-			// vehicle and the differential authority died (ladder-2
-			// r1/r2 deterministic reason=3). The elevons are the
-			// only spare nose-down actuator in that corner — but at
-			// LOW collective they are the T10 descent roll-killer.
-			// Ramp the assist over collective 0.45 -> 0.60: descent
-			// (lf ~0.3) keeps them dead, the drift-brake crawl
-			// (lf ~0.85) gets full surface authority.
-			const float coll = -_vehicle_thrust_setpoint_virtual_mc->xyz[2];
-			const float lf_w = math::constrain((coll - 0.45f) / 0.15f, 0.f, 1.f);
-			_torque_setpoint_1->xyz[0] = lf_w * gain * _vehicle_torque_setpoint_virtual_mc->xyz[0];
-			_torque_setpoint_1->xyz[1] = lf_w * gain * _vehicle_torque_setpoint_virtual_mc->xyz[1];
+			// Split-axis gating (T11 landing forensics). The two
+			// landing killers live on DIFFERENT axes:
+			//  - PITCH needs the surfaces: trim on this airframe IS
+			//    collective (both lift fans 0.067 m aft of CG), and
+			//    at 226 Pa the trim demand railed the pair at 1.00
+			//    (aero +8 Nm ~ fan ceiling 9.4) — differential died
+			//    and the vehicle departed (ladder-2 r1/r2).
+			//  - ROLL on the surfaces is the T10 descent killer
+			//    (p 2-4.9 rad/s in every honest descent run), while
+			//    fan-differential roll works at any mid-band
+			//    collective. A collective-threshold gate instead
+			//    of this split died BOTH ways (ladder-3 r1: LAND
+			//    thrust cut -> lf 0.00 -> weight zeroed the
+			//    surfaces exactly when roll needed an owner).
+			// So: pitch passes whenever the qbar gate is open; roll
+			// passes only OUTSIDE the landing regime
+			// (_dst_mode_active), where T7 validated it.
+			_torque_setpoint_1->xyz[0] = _dst_mode_active
+					? 0.f : gain * _vehicle_torque_setpoint_virtual_mc->xyz[0];
+			_torque_setpoint_1->xyz[1] = gain * _vehicle_torque_setpoint_virtual_mc->xyz[1];
 		}
 	}
 
