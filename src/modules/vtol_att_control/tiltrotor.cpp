@@ -322,12 +322,16 @@ void Tiltrotor::update_mc_state()
 			}
 
 		} else {
-			_dst_bias_state = 0.f;
+			// Slewed release, NOT a hard reset: gate flicker at the
+			// LAND-item switch stepped the SP and the torque impulse
+			// tripped the rate shield from a calm hold (single-step
+			// departures, stamps 4-7).
+			_dst_bias_state = math::min(_dst_bias_state + math::radians(0.5f) * 0.01f, 0.f);
 		}
 
 	} else {
 		_dst_mode_active = false;
-		_dst_bias_state = 0.f;
+		_dst_bias_state = math::min(_dst_bias_state + math::radians(0.5f) * 0.01f, 0.f);
 	}
 }
 
