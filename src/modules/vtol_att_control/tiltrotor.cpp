@@ -455,6 +455,12 @@ void Tiltrotor::update_transition_state()
 			float progress = (_time_since_trans_start - BACKTRANS_THROTTLE_DOWNRAMP_DUR_S) / math::max(_param_vt_bt_tilt_dur.get(),
 					 0.1f);
 			progress = math::constrain(progress, 0.0f, 1.0f);
+			// Smoothstep the tilt ramp: the linear ramp's tilt-rate
+			// discontinuities at ramp start/end are torque steps that
+			// ring the airframe (diamond: rate spikes >5 rad/s trip
+			// the sim rate shield at random). Zero-slope ends remove
+			// the steps at unchanged duration (peak mid-ramp rate 1.5x).
+			progress = progress * progress * (3.f - 2.f * progress);
 			_tilt_control = moveLinear(_param_vt_tilt_fw.get(), _param_vt_tilt_mc.get(), progress);
 		}
 
