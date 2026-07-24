@@ -639,6 +639,23 @@ void Tiltrotor::fill_actuator_outputs()
 		_torque_setpoint_1->xyz[1] = _vehicle_torque_setpoint_virtual_fw->xyz[1];
 		_torque_setpoint_1->xyz[2] = _vehicle_torque_setpoint_virtual_fw->xyz[2];
 
+	} else if (_vtol_mode == vtol_mode::TRANSITION_BACK) {
+		// Backtransition flare authority (T12). The flare pitch SP
+		// integrator reaches its 17 deg ceiling in ~2 s, but with the
+		// elevons locked the fans' +-9.4 Nm against the stable polar's
+		// restoring moment at 250 Pa holds only alpha ~2-3 deg — the
+		// achieved flare decel is 0.6 m/s^2 (calm probe: pitch pinned
+		// +6.5, 23 -> 13.5 m/s in 15 s, then the t>=19 BT-limbo
+		// departure). The flare IS aerodynamic flight: give the
+		// surfaces the PITCH channel (fw_att tracks the flare SP —
+		// exactly the qbar regime the FW pitch loop is designed for).
+		// Roll/yaw stay locked: the T3-2 lock exists for the run-35
+		// garbage FW ROLL setpoint, and BT yaw is the fork's rate
+		// damper on the louver path.
+		_torque_setpoint_1->xyz[0] = 0.f;
+		_torque_setpoint_1->xyz[1] = _vehicle_torque_setpoint_virtual_fw->xyz[1];
+		_torque_setpoint_1->xyz[2] = 0.f;
+
 	} else if (_vtol_mode == vtol_mode::MC_MODE
 		   && _param_vt_dia_elev_qbar.get() > FLT_EPSILON
 		   && distToGround() > DIAMOND_UNLOAD_FLOOR_M
