@@ -107,6 +107,19 @@ void Tiltrotor::update_vtol_state()
 
 		case vtol_mode::FW_MODE:
 			resetTransitionStates();
+			// Bumpless flare engage: seed the decel-PI integrator from
+			// the CURRENT pitch instead of zero. The airspeed-less TECS
+			// approach can hand over at a large climb demand (SP swings
+			// to +24..29 deg in the alt-band troughs while the airframe
+			// holds ~9 deg); a zero-seeded flare steps the published SP
+			// to ~0 for one cycle and then rewinds through +13..17,
+			// swinging q past the 2 rad/s shield 0.5 s after BT entry
+			// (du2_calm_r2, ulog 09_09_31). Seeding at the actual pitch
+			// makes SP ~= attitude at engage regardless of the TECS
+			// phase; the flare then evolves by its own dynamics. The
+			// 0.3 rad ceiling matches the flare's internal pitch_lim.
+			_accel_to_pitch_integ = math::constrain(
+							Eulerf(Quatf(_v_att->q)).theta(), 0.f, 0.3f);
 			_transition_start_yaw = Eulerf(Quatf(_v_att->q)).psi();
 			_vtol_mode = vtol_mode::TRANSITION_BACK;
 			break;
