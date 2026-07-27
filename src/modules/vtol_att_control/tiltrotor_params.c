@@ -246,6 +246,27 @@ PARAM_DEFINE_FLOAT(VT_DIA_BT2MC_R, 0.0f);
 PARAM_DEFINE_FLOAT(VT_DIA_DST_P, 0.0f);
 
 /**
+ * Diamond back-transition flare taper knee speed
+ *
+ * Below this body-forward speed the back-transition flare hold is
+ * tapered linearly from full authority down to 20% at the speed
+ * exit threshold (MPC_XY_CRUISE). The flare's decel PI holds its
+ * +17 deg ceiling to the last cycle; the one-cycle release into the
+ * MC level demand is the ring seed of the stop-transient
+ * ("instant") shield kills — the reversal span, not the reposition
+ * direction, sets the ring amplitude. Tapering trades the last
+ * 2-3 m of stopping distance (absorbed by VT_DIA_BT_MGN) for a
+ * ~3x smaller release step. 0 disables (bit-stock hold-to-exit;
+ * the runner stages per condition).
+ *
+ * @unit m/s
+ * @min 0.0
+ * @max 15.0
+ * @group VTOL Attitude Control
+ */
+PARAM_DEFINE_FLOAT(VT_DIA_BT_TPR, 0.0f);
+
+/**
  * Diamond back-transition trigger margin
  *
  * Added to the navigator's predicted stopping distance

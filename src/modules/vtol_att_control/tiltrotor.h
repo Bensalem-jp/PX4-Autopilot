@@ -136,6 +136,7 @@ private:
 					(ParamFloat<px4::params::VT_DIA_ROT_P>) _param_vt_dia_rot_p,
 					(ParamFloat<px4::params::VT_DIA_P1T_FLR>) _param_vt_dia_p1t_flr,
 					(ParamFloat<px4::params::VT_DIA_BT2MC_R>) _param_vt_dia_bt2mc_r,
+					(ParamFloat<px4::params::VT_DIA_BT_TPR>) _param_vt_dia_bt_tpr,
 					(ParamFloat<px4::params::VT_DIA_DST_P>) _param_vt_dia_dst_p,
 					(ParamFloat<px4::params::VT_DIA_PQ_ANG>) _param_vt_dia_pq_ang,
 					(ParamFloat<px4::params::VT_DIA_PQ_RATE>) _param_vt_dia_pq_rate,

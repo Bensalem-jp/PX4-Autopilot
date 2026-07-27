@@ -68,6 +68,10 @@ using namespace matrix;
 // MPC_LAND_ALT1 pinned a 0.2 Hz balloon limit cycle on the 2 m
 // boundary (ladders 8/9).
 #define DIAMOND_UNLOAD_FLOOR_M 0.3f
+// Flare-taper floor ratio: the hold never drops below this fraction of
+// the flare ceiling while tapering (VT_DIA_BT_TPR), keeping enough
+// nose-up to finish the deceleration without a backward-sail dwell.
+#define DIAMOND_BT_TAPER_FLOOR 0.2f
 #define BACKTRANS_THROTTLE_DOWNRAMP_DUR_S 0.5f
 #define BACKTRANS_THROTTLE_UPRAMP_DUR_S 0.5f
 
@@ -560,7 +564,33 @@ void Tiltrotor::update_transition_state()
 
 		// control backtransition deceleration using pitch.
 		if (_v_control_mode->flag_control_climb_rate_enabled) {
-			_v_att_sp->pitch_body = update_and_get_backtransition_pitch_sp();
+			float bt_pitch = update_and_get_backtransition_pitch_sp();
+
+			// VT_DIA_BT_TPR flare taper: the decel PI holds its
+			// +17 deg ceiling to the last BT cycle and the one-cycle
+			// release into the MC level/accel demand is the ring
+			// seed of the stop-transient shield kills (the reversal
+			// span, not the reposition direction, sets the ring).
+			// Fade the hold with body-forward speed so the release
+			// step shrinks ~3x; the lost 2-3 m of stopping distance
+			// is absorbed by the VT_DIA_BT_MGN short-stop margin.
+			// Nose-down-earlier is the safe direction (the measured-
+			// dead slews failed by extending the nose-UP dwell).
+			const float taper_knee = _param_vt_dia_bt_tpr.get();
+
+			if (taper_knee > FLT_EPSILON && _local_pos->v_xy_valid) {
+				const Dcmf R_to_body(Quatf(_v_att->q).inversed());
+				const Vector3f vel_b = R_to_body * Vector3f(_local_pos->vx, _local_pos->vy, _local_pos->vz);
+				const float v_exit = _param_mpc_xy_cruise.get();
+				const float span = math::max(taper_knee - v_exit, 0.5f);
+				const float ratio = math::constrain(
+							    DIAMOND_BT_TAPER_FLOOR
+							    + (1.f - DIAMOND_BT_TAPER_FLOOR) * (vel_b(0) - v_exit) / span,
+							    DIAMOND_BT_TAPER_FLOOR, 1.f);
+				bt_pitch *= ratio;
+			}
+
+			_v_att_sp->pitch_body = bt_pitch;
 		}
 
 		if (_time_since_trans_start < BACKTRANS_THROTTLE_DOWNRAMP_DUR_S) {
