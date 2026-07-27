@@ -108,18 +108,24 @@ int hrt_work_queue(struct work_s *work, worker_t worker, void *arg, uint32_t del
 {
 	struct wqueue_s *wqueue = &g_hrt_work;
 
-	/* First, initialize the work structure */
-
-	work->worker = worker;           /* Work callback */
-	work->arg    = arg;              /* Callback argument */
-	work->delay  = delay;            /* Delay until work performed */
-
-	/* Now, time-tag that entry and put it in the work queue.  This must be
+	/* Time-tag the entry and put it in the work queue.  This must be
 	 * done with interrupts disabled.  This permits this function to be called
 	 * from with task logic or interrupt handlers.
 	 */
 
 	hrt_work_lock();
+
+	/* Initialize the work structure UNDER the lock: hrt_work_cancel gates
+	 * its dq_rem on worker != NULL, and dq_rem has no membership check.  A
+	 * pre-lock worker write lets a concurrent cancel remove a not-yet-linked
+	 * node, after which the two racing dq_addlast calls leave the singleton
+	 * _hrt_work in a self-referencing cycle and every periodic HRT callout
+	 * dies permanently (the SITL t~11 s timer-death class, 6/93 runs). The
+	 * invariant restored here: worker != NULL if and only if the node is
+	 * linked in the queue. */
+	work->worker = worker;           /* Work callback */
+	work->arg    = arg;              /* Callback argument */
+	work->delay  = delay;            /* Delay until work performed */
 	work->qtime  = hrt_absolute_time(); /* Time work queued */
 	//PX4_INFO("hrt work_queue adding work delay=%u time=%lu", delay, work->qtime);
 
