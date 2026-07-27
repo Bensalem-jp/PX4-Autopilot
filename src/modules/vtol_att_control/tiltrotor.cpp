@@ -444,6 +444,15 @@ void Tiltrotor::update_transition_state()
 			_tilt_control = math::max(_tilt_control, ramped_up_tilt);
 		}
 
+		// Diamond P1 backward-drift guard: floor the tilt so the
+		// diverters push forward from the first P1 cycle. The stock
+		// ramp starts at VT_TILT_MC (0) and leaves the vehicle
+		// force-free while the mission handover can seed a backward
+		// drift (r4 forensics: u_body -1.5 m/s at P1+1 s -> the
+		// reversed-flow weathervane departure at qbar ~30 Pa, the
+		// T12b machine-level class). 0 disables (stock behavior).
+		_tilt_control = math::max(_tilt_control, _param_vt_dia_p1t_flr.get());
+
 		// at low speeds give full weight to MC
 		_mc_roll_weight = 1.0f;
 		_mc_yaw_weight = 1.0f;

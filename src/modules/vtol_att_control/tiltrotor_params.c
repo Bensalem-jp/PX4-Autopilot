@@ -191,6 +191,25 @@ PARAM_DEFINE_FLOAT(VT_DIA_ELEV_QC, 0.0f);
 PARAM_DEFINE_FLOAT(VT_DIA_ROT_P, 0.0f);
 
 /**
+ * Diamond front-transition P1 tilt floor
+ *
+ * Floors the diverter tilt from the first TRANSITION_FRONT_P1 cycle
+ * so the forward fans push nose-ward immediately instead of ramping
+ * from zero. The mission handover can seed a backward drift at P1
+ * entry (a ~1 s southward trajectory setpoint, then NaN); with no
+ * forward force for the first ramp seconds the drift grows and the
+ * reversed-flow weathervane (swept wing, fins ahead of the CG in
+ * backward flow) departs in yaw at qbar ~30 Pa -- the calm climb
+ * yaw-divergence class (~1/8). 0 disables (stock ramp behavior).
+ *
+ * @unit norm
+ * @min 0.0
+ * @max 0.3
+ * @group VTOL Attitude Control
+ */
+PARAM_DEFINE_FLOAT(VT_DIA_P1T_FLR, 0.0f);
+
+/**
  * Diamond wind-descent wing-unload pitch bias
  *
  * While descending (LAND or climb-rate-only mode) in meaningful
