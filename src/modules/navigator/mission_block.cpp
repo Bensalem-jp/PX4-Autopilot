@@ -349,7 +349,13 @@ MissionBlock::is_mission_item_reached_or_completed()
 				const float back_trans_dec = _navigator->get_vtol_back_trans_deceleration();
 
 				if (back_trans_dec > FLT_EPSILON && velocity > FLT_EPSILON) {
-					acceptance_radius = (velocity / back_trans_dec / 2) * velocity;
+					// VT_DIA_BT_MGN: the v^2/(2a) prediction misses the
+					// trigger/tilt-spool latency and the tracked-decel
+					// shortfall; without the margin the stop point lands
+					// past the land waypoint and the landing becomes a
+					// backward reposition (reversed-flow porpoise regime).
+					acceptance_radius = (velocity / back_trans_dec / 2) * velocity
+							    + _navigator->get_vtol_back_trans_trigger_margin();
 
 				}
 

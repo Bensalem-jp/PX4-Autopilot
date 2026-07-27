@@ -101,6 +101,7 @@ Navigator::Navigator() :
 	}
 
 	_handle_back_trans_dec_mss = param_find("VT_B_DEC_MSS");
+	_handle_vt_dia_bt_mgn = param_find("VT_DIA_BT_MGN");
 
 	_handle_mpc_jerk_auto = param_find("MPC_JERK_AUTO");
 	_handle_mpc_acc_hor = param_find("MPC_ACC_HOR");
@@ -133,6 +134,10 @@ void Navigator::params_update()
 
 	if (_handle_back_trans_dec_mss != PARAM_INVALID) {
 		param_get(_handle_back_trans_dec_mss, &_param_back_trans_dec_mss);
+	}
+
+	if (_handle_vt_dia_bt_mgn != PARAM_INVALID) {
+		param_get(_handle_vt_dia_bt_mgn, &_param_vt_dia_bt_mgn);
 	}
 
 	if (_handle_mpc_jerk_auto != PARAM_INVALID) {

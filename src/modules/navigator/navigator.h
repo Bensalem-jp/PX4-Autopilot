@@ -270,6 +270,7 @@ public:
 	float get_yaw_threshold() const { return math::radians(_param_mis_yaw_err.get()); }
 
 	float get_vtol_back_trans_deceleration() const { return _param_back_trans_dec_mss; }
+	float get_vtol_back_trans_trigger_margin() const { return _param_vt_dia_bt_mgn; }
 
 	bool force_vtol();
 
@@ -357,10 +358,12 @@ private:
 	NavigatorMode *_navigation_mode_array[NAVIGATOR_MODE_ARRAY_SIZE] {};	/**< array of navigation modes */
 
 	param_t _handle_back_trans_dec_mss{PARAM_INVALID};
+	param_t _handle_vt_dia_bt_mgn{PARAM_INVALID};
 	param_t _handle_mpc_jerk_auto{PARAM_INVALID};
 	param_t _handle_mpc_acc_hor{PARAM_INVALID};
 
 	float _param_back_trans_dec_mss{0.f};
+	float _param_vt_dia_bt_mgn{0.f};
 	float _param_mpc_jerk_auto{4.f}; 	/**< initialized with the default jerk auto value to prevent division by 0 if the parameter is accidentally set to 0 */
 	float _param_mpc_acc_hor{3.f};		/**< initialized with the default horizontal acc value to prevent division by 0 if the parameter is accidentally set to 0 */
 

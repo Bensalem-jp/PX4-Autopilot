@@ -244,3 +244,23 @@ PARAM_DEFINE_FLOAT(VT_DIA_BT2MC_R, 0.0f);
  * @group VTOL Attitude Control
  */
 PARAM_DEFINE_FLOAT(VT_DIA_DST_P, 0.0f);
+
+/**
+ * Diamond back-transition trigger margin
+ *
+ * Added to the navigator's predicted stopping distance
+ * (v^2 / (2 * VT_B_DEC_MSS)) when accepting a back-transition
+ * waypoint. The prediction misses a roughly constant trigger/
+ * tilt-spool latency (~19 m at cruise on this airframe) plus the
+ * tracked-decel shortfall (~0.92x), so the stop point lands past
+ * the land waypoint and the landing becomes a backward reposition
+ * — the reversed-flow porpoise regime. The margin moves the
+ * trigger out so the vehicle stops ON the waypoint instead.
+ * 0 disables (bit-stock trigger; the runner stages per condition).
+ *
+ * @unit m
+ * @min 0.0
+ * @max 100.0
+ * @group VTOL Attitude Control
+ */
+PARAM_DEFINE_FLOAT(VT_DIA_BT_MGN, 0.0f);
