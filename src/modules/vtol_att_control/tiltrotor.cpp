@@ -157,6 +157,10 @@ void Tiltrotor::update_vtol_state()
 				// needs 7+; the authority death frees the static
 				// instability, nose-up 25 deg runaway).
 				_post_bt_mc = true;
+				// BT->MC handover slew anchor: the physical pitch at
+				// the switch instant (bumpless transfer origin).
+				_bt2mc_pitch_state = Eulerf(Quatf(_v_att->q)).theta();
+				_bt2mc_last_us = hrt_absolute_time();
 			}
 
 			break;
@@ -170,6 +174,7 @@ void Tiltrotor::update_vtol_state()
 			resetTransitionStates();
 			_pitch_quiet_since = 0;
 			_post_bt_mc = false;
+			_bt2mc_pitch_state = NAN;
 			_transition_start_yaw = Eulerf(Quatf(_v_att->q)).psi();
 			_vtol_mode = vtol_mode::TRANSITION_FRONT_P1;
 			break;
@@ -378,6 +383,38 @@ void Tiltrotor::update_mc_state()
 	} else {
 		_dst_mode_active = false;
 		_dst_bias_state = math::min(_dst_bias_state + math::radians(0.5f) * 0.01f, 0.f);
+	}
+
+	// BT->MC attitude handover slew (bumpless transfer). The state
+	// switch steps the pitch setpoint from the back-transition flare
+	// hold (+12..+17 deg) to the MC position-control demand (~-2 deg)
+	// in ONE cycle; at the near-zero qbar of a calm BT exit the
+	// attitude loop chases the 14-19 deg step with q swinging past
+	// +-1.5 rad/s and the mission shield trips (reason=3 -- the
+	// BT-handover transient class, r8/l3 forensics). Anchor the
+	// published pitch SP at the captured handover attitude and slew
+	// it toward the MC demand at VT_DIA_BT2MC_R deg/s; release once
+	// converged. Same step-SP-forbidden principle as the DST slew
+	// above (T10). Runs LAST so it slews toward the final demand
+	// (including any ROT/DST shaping). 0 disables (stock step).
+	if (_param_vt_dia_bt2mc_r.get() > FLT_EPSILON && PX4_ISFINITE(_bt2mc_pitch_state)) {
+		const hrt_abstime now_b2m = hrt_absolute_time();
+		const float dt_b2m = math::constrain((now_b2m - _bt2mc_last_us) * 1e-6f, 0.f, 0.1f);
+		_bt2mc_last_us = now_b2m;
+
+		const Eulerf euler_b2m(Quatf(_v_att_sp->q_d));
+		const float demand = euler_b2m.theta();
+		const float step = math::radians(_param_vt_dia_bt2mc_r.get()) * dt_b2m;
+
+		if (fabsf(demand - _bt2mc_pitch_state) <= step) {
+			_bt2mc_pitch_state = NAN;	// converged -- release to stock
+
+		} else {
+			_bt2mc_pitch_state += (demand > _bt2mc_pitch_state) ? step : -step;
+			const Quatf q_b2m(Eulerf(euler_b2m.phi(), _bt2mc_pitch_state, euler_b2m.psi()));
+			q_b2m.copyTo(_v_att_sp->q_d);
+			_v_att_sp->pitch_body = _bt2mc_pitch_state;
+		}
 	}
 }
 

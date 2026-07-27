@@ -119,6 +119,8 @@ private:
 	// Set when the back transition completes; the wind unload runs
 	// from the first post-BT MC cycle (racing the MPC thrust cut).
 	bool _post_bt_mc{false};
+	float _bt2mc_pitch_state{NAN};	// rad; NAN = handover slew inactive
+	hrt_abstime _bt2mc_last_us{0};
 	// Rate limiter for the BT exit-gate diagnostic print (1 Hz).
 	hrt_abstime _bt_gate_log_ts{0};
 	// Low-pass state for the landing-regime elevon pitch DC-trim
@@ -133,6 +135,7 @@ private:
 					(ParamFloat<px4::params::VT_DIA_ELEV_QC>) _param_vt_dia_elev_qcap,
 					(ParamFloat<px4::params::VT_DIA_ROT_P>) _param_vt_dia_rot_p,
 					(ParamFloat<px4::params::VT_DIA_P1T_FLR>) _param_vt_dia_p1t_flr,
+					(ParamFloat<px4::params::VT_DIA_BT2MC_R>) _param_vt_dia_bt2mc_r,
 					(ParamFloat<px4::params::VT_DIA_DST_P>) _param_vt_dia_dst_p,
 					(ParamFloat<px4::params::VT_DIA_PQ_ANG>) _param_vt_dia_pq_ang,
 					(ParamFloat<px4::params::VT_DIA_PQ_RATE>) _param_vt_dia_pq_rate,
