@@ -257,7 +257,10 @@ PARAM_DEFINE_FLOAT(VT_DIA_DST_P, 0.0f);
  * direction, sets the ring amplitude. Tapering trades the last
  * 2-3 m of stopping distance (absorbed by VT_DIA_BT_MGN) for a
  * ~3x smaller release step. 0 disables (bit-stock hold-to-exit;
- * the runner stages per condition).
+ * the runner stages per condition). Edge case (review L2): if the
+ * knee is set at or below MPC_XY_CRUISE the taper span clamps to
+ * 0.5 m/s and the fade compresses to just above the exit speed —
+ * bounded by the same [20%, 100%] constrain, never unsafe.
  *
  * @unit m/s
  * @min 0.0

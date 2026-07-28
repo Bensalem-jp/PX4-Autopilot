@@ -118,8 +118,14 @@ void Tiltrotor::update_vtol_state()
 			// makes SP ~= attitude at engage regardless of the TECS
 			// phase; the flare then evolves by its own dynamics. The
 			// 0.3 rad ceiling matches the flare's internal pitch_lim.
-			_accel_to_pitch_integ = math::constrain(
-							Eulerf(Quatf(_v_att->q)).theta(), 0.f, 0.3f);
+			{
+				// Defense-in-depth (review S1): a non-finite attitude
+				// quaternion (catastrophic EKF failure) must not poison
+				// the integrator — fall back to the stock zero seed.
+				const float seed_pitch = Eulerf(Quatf(_v_att->q)).theta();
+				_accel_to_pitch_integ = PX4_ISFINITE(seed_pitch)
+							? math::constrain(seed_pitch, 0.f, 0.3f) : 0.f;
+			}
 			_transition_start_yaw = Eulerf(Quatf(_v_att->q)).psi();
 			_vtol_mode = vtol_mode::TRANSITION_BACK;
 			break;
