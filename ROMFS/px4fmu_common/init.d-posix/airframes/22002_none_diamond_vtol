@@ -16,6 +16,15 @@
 #   - lift fans must NOT be hard-zeroed at cruise entry (wing carries
 #     only ~90 N at 16.5 m/s) — Diamond updateSetpoint exception, T3-2
 #
+# BOOT-PARITY CONTRACT (C3-1): the boot state must equal the CALM-validated
+# configuration, because a real FC has no mission runner to stage params.
+# Enforced by tests/test_airframe_boot_parity.py against the production
+# staging lists in bwb_vtol/px4_staging.py: every param staged by BOTH
+# build_wind_stage_params() and build_calm_restore_params() must boot at its
+# calm value.  Params staged only on the calm side are EXEMPT — their boot
+# value is what a wind run actually flies until FW entry, so changing them
+# would silently retune the wind campaign (see the test's exemption table).
+#
 # PROVISIONAL output mapping (verify in T3-0 static channel check):
 # servo function order follows the DiamondVTOL actuator add order
 # (tilts -> louvers on matrix 0, elevons on matrix 1):
@@ -150,6 +159,14 @@ param set VT_ARSP_TRANS 15
 param set FW_AIRSPD_TRIM 17
 param set VT_TILT_TRANS 0.35
 param set VT_BT_TILT_DUR 0.5
+# Back-transition backstop, NOT the exit (T12). With no wind the airframe
+# cannot shed speed outside the BT flare (CD 0.0066 => ~2 N drag, tau
+# ~100 s): the 10 s default exited at 19 m/s and MC then wandered an
+# orbital trap it could never capture (15calm_r1, budget death at alt
+# 20.7). The real calm exit is the SPEED condition (vel0 < MPC_XY_CRUISE,
+# measured flare decel 0.72 m/s^2 => ~25 s from the 23.4 zoom peak).
+# Wind stages 17 (its limbo departs on standing qbar).
+param set VT_B_TRANS_DUR 28
 # VT_FW_MIN_ALT 0 = DISABLED for SITL. The T3-0 value (5) mistranslated
 # the GT gate criterion 'alt LOSS < 5 m' into a minimum-altitude
 # quadchute: PX4 local altitude at the hover hold is only ~1.5 m
@@ -172,6 +189,15 @@ param set VT_TRANS_P2_DUR 2.5
 param set VT_DIA_PQ_ANG 5.0
 param set VT_DIA_PQ_RATE 15.0
 param set VT_DIA_PQ_T 1.0
+# P1 backward-drift guard: floor the diverter tilt from the first
+# front-transition cycle. The mission handover seeds a ~1 s backward
+# trajectory setpoint at P1 entry and then goes NaN; with the stock
+# zero-start ramp the vehicle drifts backward (r4: u_body -1.5 m/s at
+# P1+1 s) and the reversed-flow weathervane departs in yaw at qbar
+# ~30 Pa (the calm climb yaw-divergence class, ~1/8). 0.15 = ~3.3 N
+# immediate forward push (same value as the validated T7 rotation
+# floor). Wind stages 0.0 (its rotation floor covers the same window).
+param set VT_DIA_P1T_FLR 0.15
 # FW lift-fan floor: wing carries ~90 N at 16.5 m/s; lift fans hold
 # 15% instead of tracking cruise throttle (T1 cruise trim ~0.195).
 param set CA_DIA_FW_LF_MIN 0.15
@@ -229,7 +255,14 @@ param set FW_THR_TRIM 0.55
 # TECS de-tuned for a slippery L/D~20 airframe: slower energy transfer
 # and real pitch damping kill the kinetic<->potential slosh that fed
 # every wander (26/27b: 50-70 m alt pumps, tas 20-30 vs sp 17).
-param set FW_T_ALT_TC 10.0
+# ALT_TC 10 -> 3: the FW_USE_AIRSPD=1 restore collapsed the calm cruise
+# alt band from 8.2-9.0 m to 5.1-5.6 m, grazing the 5.0 gate from above;
+# CAS-tracking TECS can take a tighter altitude loop (band scales with
+# the TC: 5.3 * 3/5 ~ 3.2 m). Every calm E2E since flew 3.0 staged by
+# the runner — this line only removes the runner dependency. Wind
+# restores the vtol default 5.0 in its own stage (the whole T5-T14 wind
+# envelope was validated on it). TAS_TC stays 10 in both regimes.
+param set FW_T_ALT_TC 3.0
 param set FW_T_TAS_TC 10.0
 param set FW_T_PTCH_DAMP 0.3
 param set FW_T_CLMB_MAX 3.0
@@ -359,3 +392,21 @@ param set MPC_JERK_MAX 5.0
 
 # Airmode: roll/pitch priority (hover-validated)
 param set MC_AIRMODE 1
+
+# --- Boot-parity block: wind-staged params forced at their CALM value ---
+# These are staged by BOTH the wind stage and the calm restore, so the boot
+# value is dead in SITL either way. Each one's calm value happens to equal
+# the PX4 default, so forcing it changes no behaviour — it defends against a
+# value persisted from a previous session (bson residue), which on a real FC
+# is the same failure mode the header's 'param set not set-default' lesson
+# describes. Wind values in parentheses are staged by the runner.
+param set LNDMC_TRIG_TIME 1.0
+# (wind 5.0 — a long trigger time keeps a gusty touchdown from latching)
+param set MIS_YAW_ERR 12
+# (wind 175 — effectively disables the WP yaw gate in a crosswind)
+param set MPC_XY_CRUISE 5
+# (wind 1.5 — also the calm back-transition SPEED exit, see VT_B_TRANS_DUR)
+param set VT_DIA_DST_P 0.0
+# (wind 3.0 — descent wing-unload pitch bias, wind-only)
+param set VT_DIA_ROT_P 0.0
+# (wind 3.0 — explicit wind-takeoff rotation, wind-only)
