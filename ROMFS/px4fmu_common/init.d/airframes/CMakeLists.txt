@@ -136,6 +136,7 @@ if(CONFIG_MODULES_VTOL_ATT_CONTROL)
 
 		# [22000, 22999] Custom VTOL
 		22001_diamond_vtol
+		22002_diamond_vtol
 	)
 endif()
 
