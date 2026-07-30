@@ -24,6 +24,9 @@
 # calm value.  Params staged only on the calm side are EXEMPT — their boot
 # value is what a wind run actually flies until FW entry, so changing them
 # would silently retune the wind campaign (see the test's exemption table).
+# Second, weaker rule (presence, not value): every param ANY staging list
+# writes — including the FW-entry landing stage — must be forced here, so no
+# autosaved in-flight value can survive into the next boot.
 #
 # PROVISIONAL output mapping (verify in T3-0 static channel check):
 # servo function order follows the DiamondVTOL actuator add order
@@ -410,3 +413,23 @@ param set VT_DIA_DST_P 0.0
 # (wind 3.0 — descent wing-unload pitch bias, wind-only)
 param set VT_DIA_ROT_P 0.0
 # (wind 3.0 — explicit wind-takeoff rotation, wind-only)
+
+# --- Landing-stage residue pin (C3-1 mechanism prerequisite) ---
+# These four are written ONLY at FW entry (build_landing_stage_params), and
+# nothing restores them: PX4 autosaves every param_set (all three exported
+# variants pass mark_saved=false), and the calm restore -- which wind runs
+# never receive, the two branches are exclusive -- does not carry VT_DIA_BT_*.
+# Their boot value today comes from a DEFAULT (PX4 3.0 / rc.vtol_defaults 5 /
+# fork 0.0), and a default loses to a persisted value, so a wind takeoff can
+# inherit MPC_ACC_HOR 0.8 from the previous calm landing. Forcing the same
+# values changes nothing that flies today and makes the boot state invariant
+# under any in-flight write -- the precondition for the FC-side mechanism
+# applying the landing configuration onboard.
+param set MPC_ACC_HOR 3.0
+# (calm landing 0.8 — gentle MC brake; wind keeps 3.0)
+param set MPC_XY_ERR_MAX 5
+# (wind landing 20 — Z-ramp unlock; rc.vtol_defaults only set-defaults this)
+param set VT_DIA_BT_MGN 0.0
+# (calm landing 35 — BT trigger margin; wind keeps 0)
+param set VT_DIA_BT_TPR 0.0
+# (calm landing 6 — flare taper knee; wind keeps 0)
