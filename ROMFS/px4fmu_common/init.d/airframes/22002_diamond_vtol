@@ -42,8 +42,12 @@
 # configuration is a separate ops decision (6DOF + RF shielding bench, #1228)
 # and deliberately not guessed here.
 #
-# OUTPUT MAPPING IS DELIBERATELY ABSENT, as in every upstream HW airframe
-# (13000/13100/13030/13013 set zero output functions).  It is board wiring,
+# OUTPUT MAPPING IS DELIBERATELY ABSENT, as in every GENERIC upstream VTOL
+# airframe (13000/13100/13030/13013/13200 set zero output functions).  The one
+# HW VTOL that does map outputs is 13014_vtol_babyshark, a single commercial
+# airframe with a fixed factory harness -- and it uses `param set-default`, so
+# an operator can still override it.  This vehicle's harness is not built yet,
+# which is the generic case.  Output mapping is board wiring,
 # not vehicle definition, and it does not transfer: the vehicle has 10
 # actuators (4 motors + 2 tilt + 2 louver + 2 elevon) while a bus is at most
 # 8 wide -- on Pixhawk 6X, PWM_MAIN_* is the IO coprocessor (8 outputs,
@@ -59,14 +63,23 @@
 #   FD_ACT_EN vs the fork's own diverter-stuck detection (C3-6)
 #
 # FORCED PARAMS: this file uses `param set`, not upstream's `param set-default`.
-# That is deliberate and measured.  Every exported PX4 setter autosaves
-# (param_set_internal passes mark_saved=false), so any value written in flight
+# That is deliberate and measured.  Every exported PX4 setter reachable on this
+# board autosaves (param_set_internal passes mark_saved=false; the one setter
+# that can mark a value saved, param_set_external, is compiled only under
+# FLASH_BASED_PARAMS, which FMUv6X does not use), so any value written in flight
 # -- by the FC-side regime mechanism, by a bench experiment, by QGC -- survives
 # the next boot; a default loses to a persisted value while a forced value
 # beats it.  C3-1's whole guarantee is that the boot state is invariant, and
 # the hover phase already lost time to set-default silently yielding to a
 # persisted value.  Cost: persistent tuning must be done by editing this file,
 # which is also what keeps sim and aircraft in lockstep.
+#
+# BENCH NOTE, consequence of the above: a QGC tune of any param below is LOST
+# at the next boot, silently and without a warning.  The values most likely to
+# need bench calibration are MPC_THR_HOVER (hover thrust, mass-dependent),
+# MC_{ROLL,PITCH,YAW}_P and MC_*RATE_{P,I,D} (attitude/rate gains) and
+# FW_THR_TRIM.  Tune them in flight if you must, but land the accepted value
+# in the SITL file and mirror it here, or the next power cycle undoes it.
 #
 . ${R}etc/init.d/rc.vtol_defaults
 
