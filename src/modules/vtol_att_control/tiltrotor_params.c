@@ -288,3 +288,33 @@ PARAM_DEFINE_FLOAT(VT_DIA_BT_TPR, 0.0f);
  * @group VTOL Attitude Control
  */
 PARAM_DEFINE_FLOAT(VT_DIA_BT_MGN, 0.0f);
+
+/**
+ * Diamond weather regime
+ *
+ * Selects the pre-takeoff configuration the airframe script applies:
+ * the 14 parameters that differ between a calm and a windy mission
+ * (climb cap, takeoff punch, transition airspeed, land-detector
+ * trigger time, back-transition budget, the fork's ground rotation
+ * and descent wing-unload biases, ...). Before this existed the
+ * ground runner pushed those 14 over MAVLink before every mission,
+ * which meant the aircraft was only correctly configured while a
+ * laptop was talking to it.
+ *
+ * Read ONCE at boot, by `param compare` in the airframe script — so
+ * a change takes effect on the NEXT boot, and the values can be read
+ * back and checked before arming rather than appearing mid-flight.
+ *
+ * 3 is reserved for deriving the regime from the EKF wind estimate
+ * and is deliberately not implemented: that path depends on
+ * airspeed_selector, whose probabilistic stall is unresolved.
+ *
+ * @value 0 Calm
+ * @value 1 Wind, up to 17 m/s
+ * @value 2 Wind, above 17 m/s (adds the +3 deg pitch clamp)
+ * @min 0
+ * @max 2
+ * @group VTOL Attitude Control
+ * @reboot_required true
+ */
+PARAM_DEFINE_INT32(VT_DIA_WX_MODE, 0);

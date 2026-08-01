@@ -433,3 +433,92 @@ param set VT_DIA_BT_MGN 0.0
 # (calm landing 35 — BT trigger margin; wind keeps 0)
 param set VT_DIA_BT_TPR 0.0
 # (calm landing 6 — flare taper knee; wind keeps 0)
+
+# --- Weather regime: wind overrides (C3-1 group A) ---
+# ONE operator switch replaces the 14 pre-mission param pushes the ground
+# runner used to send (build_wind_stage_params / build_calm_restore_params in
+# bwb_vtol/px4_staging.py). Until now the aircraft was only configured for its
+# mission while a laptop was talking to it.
+#
+# VT_DIA_WX_MODE 0 = calm, 1 = wind up to 17 m/s, 2 = wind above 17 m/s.
+# 3 is RESERVED for deriving the regime from the EKF wind estimate and is
+# deliberately not implemented (that path depends on airspeed_selector, whose
+# probabilistic stall is unresolved).
+#
+# Written as OVERRIDES rather than an if/else pair: every one of these params
+# already carries its calm value above, in the section that documents WHY that
+# value is what it is. So mode 0 executes exactly the file that flies today --
+# the calm campaign cannot regress -- and no value is stated in two places
+# where the two could drift apart. PX4 runs the script top to bottom and the
+# last assignment wins.
+#
+# VT_DIA_WX_MODE itself is the one param this file must NOT `param set`:
+# `param set` runs before the compare and autosaves, so forcing it would
+# overwrite the operator's selection on every boot and make one arm dead code.
+# It is declared with a default of 0 in tiltrotor_params.c and left to the
+# operator; parse_airframe_params() refuses a script that does both.
+#
+# The mode is read ONLY here, at boot. Changing it and taking off without a
+# reboot flies the PREVIOUS configuration -- the fork's arming check refuses
+# that (C3-1 step 5); until it lands, the reboot is a procedure.
+if param compare VT_DIA_WX_MODE 1 2
+then
+	# Pusher-assisted lean above the climb gate. EN=2, not 1: the EN=1
+	# climb-phase disable clause ground 240+ s of the T7 takeoff.
+	param set VT_FWD_THRUST_EN 2
+	# Land-mode altitude split: hold the descent to 2 m before the flare.
+	param set MPC_LAND_ALT1 2.0
+	# A headwind lowers the plateau equilibrium airspeed below the
+	# calm-validated 15.
+	param set VT_ARSP_TRANS 14.0
+	# TECS altitude time constant: the whole T5-T14 wind envelope was
+	# validated on the vtol default 5.0 (calm tightens it to 3.0 to close
+	# the cruise alt band).
+	param set FW_T_ALT_TC 5.0
+	# Stock P1 ramp: the headwind supplies immediately the airspeed that
+	# the calm 0.15 tilt floor exists to manufacture.
+	param set VT_DIA_P1T_FLR 0.0
+	# Takeoff punch -- and the climb cap raised to match. At the base 1.0
+	# the cap SILENTLY throttles the fans below hover at ~2 m (the wing
+	# already carries the load at 245 Pa) and the vehicle sags back into
+	# the collapse zone: ~1/6 of wind takeoffs were trapped there.
+	param set MPC_TKO_SPEED 2.5
+	param set MPC_Z_VEL_MAX_UP 3.0
+	# Deterministic ground rotation while landed with qbar > 20 Pa (fork):
+	# rotate on the gear and let the wing lift the vehicle off, instead of
+	# waiting for the pusher clamp that dies in climb-rate phases.
+	param set VT_DIA_ROT_P 3.0
+	# Crosswind sequencing: the airframe weathervanes nose-into-wind, so
+	# the mission must not wait for heading alignment to the leg.
+	param set MIS_YAW_ERR 175.0
+	# False-land guard: at the 20 m/s back-transition apex vz, groundspeed
+	# and thrust all fall to ~0 and the MC land detector fires -- PX4 once
+	# DISARMED at 33 m. 5 s outlasts the apex dwell; a touchdown holds far
+	# longer.
+	param set LNDMC_TRIG_TIME 5.0
+	# Descent wing-unload bias (fork): in strong wind the wing refuses the
+	# descent, the vertical loop throttles to zero chasing it and departs.
+	param set VT_DIA_DST_P 3.0
+	# Back-transition budget: hand over to MC inside the demonstrated
+	# stable region instead of wind-hovering under transition control laws
+	# at 138+ Pa (the speed exit cannot fire -- see MPC_XY_CRUISE below).
+	param set VT_B_TRANS_DUR 17.0
+	# MC reposition speed after the BT overshoot (the way back is a
+	# downwind drift). NOTE: mc_pos_control clamps MPC_XY_CRUISE to
+	# MPC_XY_VEL_MAX -- 1.0 in this file -- and COMMITS the clamped value
+	# (MulticopterPositionControl.cpp:184-186), so this line states the
+	# intent and only becomes effective once VEL_MAX is raised for the
+	# mission. It is kept here so the regime table is complete and so the
+	# value cannot be inherited from a previous calm run's bson residue.
+	param set MPC_XY_CRUISE 1.5
+fi
+
+# VT_PITCH_MIN is the only bucketed entry: vt_pitch_min_for_wind() clamps to
+# +3 deg only ABOVE 17 m/s, so modes 0 and 1 share the -1.0 set above. At
+# 15 m/s the -1 config climbed in 72 s vs ~115 s with +3 (the pusher diverts
+# more of the demand gap to tilt); at 20 m/s a -1 deg lean costs ~41 N of
+# downforce against a 9 N climb margin, so there the clamp is what flies.
+if param compare VT_DIA_WX_MODE 2
+then
+	param set VT_PITCH_MIN 3.0
+fi
