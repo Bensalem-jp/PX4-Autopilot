@@ -5,9 +5,6 @@
 # @class VTOL
 # @maintainer BWB Project Team
 #
-# @board px4_fmu-v2 exclude
-# @board bitcraze_crazyflie exclude
-#
 # HARDWARE counterpart of init.d-posix/airframes/22002_none_diamond_vtol.
 # The campaign vehicle (T3 transition, T5-T14 wind/landing) existed only as a
 # SITL airframe, so every boot-state guarantee C3-1 established applied to a
@@ -81,6 +78,14 @@
 # FW_THR_TRIM.  Tune them in flight if you must, but land the accepted value
 # in the SITL file and mirror it here, or the next power cycle undoes it.
 #
+# The @board excludes are LAST on purpose.  Tools/px4airframes/srcparser.py
+# stores @board (and @output) in a separate dict but still points current_tag
+# at it, so the next free-text comment line hits `tags[current_tag] +=` and
+# raises KeyError: 'board' -- the ROMFS build of EVERY target dies, not just
+# this airframe.  Nothing may follow these two lines inside this comment block.
+#
+# @board px4_fmu-v2 exclude
+# @board bitcraze_crazyflie exclude
 . ${R}etc/init.d/rc.vtol_defaults
 
 # --- Diamond VTOL effectiveness class (ALL GEOMETRY FORCED) ---
