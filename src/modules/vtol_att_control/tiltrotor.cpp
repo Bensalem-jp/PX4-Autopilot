@@ -78,12 +78,47 @@ using namespace matrix;
 Tiltrotor::Tiltrotor(VtolAttitudeControl *attc) :
 	VtolType(attc)
 {
+	// Latch the regime at construction, which is boot: this module starts
+	// from rcS after the airframe script has already read VT_DIA_WX_MODE and
+	// written the calm or windy takeoff configuration.  Taking it live here
+	// instead would let an in-flight mode change land the aircraft on a table
+	// that does not match the one it took off on.
+	_wx_mode_at_boot = _param_vt_dia_wx_mode.get();
 }
 
 void
 Tiltrotor::parameters_update()
 {
 	VtolType::updateParams();
+}
+
+void
+Tiltrotor::applyLandingStageOnce()
+{
+	if (_landing_stage_applied) {
+		return;
+	}
+
+	// Mark it applied whatever happens: a table that could not be written
+	// will not become writable on the next transition, and retrying every
+	// time would bury the one PX4_ERR that says why under a repeat.
+	_landing_stage_applied = true;
+
+	// Modes 1 and 2 are both wind; they differ only in the takeoff pitch
+	// clamp, which this table releases either way.
+	const bool wind = _wx_mode_at_boot >= 1;
+	const int written = applyDiamondLandingStage(wind);
+
+	if (written < 0) {
+		// The aircraft keeps flying on the takeoff configuration -- which is
+		// exactly what it did before this table existed, and what it does
+		// today whenever the ground runner is not staging.
+		PX4_ERR("landing stage NOT applied at FW entry (wx mode %d)", (int)_wx_mode_at_boot);
+		return;
+	}
+
+	PX4_INFO("landing stage applied at FW entry: %d params, wx mode %d (%s)",
+		 written, (int)_wx_mode_at_boot, wind ? "wind" : "calm");
 }
 
 void Tiltrotor::update_vtol_state()
@@ -221,6 +256,7 @@ void Tiltrotor::update_vtol_state()
 			if (_tilt_control >= _param_vt_tilt_fw.get()) {
 				_vtol_mode = vtol_mode::FW_MODE;
 				_tilt_control = _param_vt_tilt_fw.get();
+				applyLandingStageOnce();
 			}
 
 			break;

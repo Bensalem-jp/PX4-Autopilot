@@ -40,6 +40,7 @@
 
 #ifndef TILTROTOR_H
 #define TILTROTOR_H
+#include "diamond_landing_stage.hpp"
 #include "vtol_type.h"
 #include <parameters/param.h>
 #include <drivers/drv_hrt.h>
@@ -87,6 +88,14 @@ private:
 	float _tilt_control{0.0f};		/**< actuator value for the tilt servo */
 
 	void parameters_update() override;
+
+	/**
+	 * Write the landing / back-transition configuration for the booted
+	 * weather regime, once, at front-transition completion.  Replaces the
+	 * ground runner's MAVLink push at the same edge (C3-1 group B).
+	 */
+	void applyLandingStageOnce();
+
 	float timeUntilMotorsAreUp();
 	float moveLinear(float start, float stop, float progress);
 
@@ -128,9 +137,20 @@ private:
 	// surfaces carry the slow wing-moment trim).
 	float _elev_trim_state{0.f};
 	hrt_abstime _elev_trim_last_us{0};
-
+	// Weather regime as it was at boot, i.e. the one the airframe script
+	// configured the aircraft for.  Read once rather than live: the arming
+	// check refuses a mode changed before takeoff, but nothing stops a mode
+	// changed in flight, and the landing table must match what the aircraft
+	// actually took off with.
+	int32_t _wx_mode_at_boot{0};
+	// The landing table is a one-shot at front-transition completion, like
+	// the ground runner's push it replaces.  A back transition followed by a
+	// second front transition must not re-apply it: by then MPC_XY_CRUISE and
+	// friends may have been retuned for a diversion.
+	bool _landing_stage_applied{false};
 
 	DEFINE_PARAMETERS_CUSTOM_PARENT(VtolType,
+					(ParamInt<px4::params::VT_DIA_WX_MODE>) _param_vt_dia_wx_mode,
 					(ParamFloat<px4::params::VT_DIA_ELEV_QB>) _param_vt_dia_elev_qbar,
 					(ParamFloat<px4::params::VT_DIA_ELEV_QC>) _param_vt_dia_elev_qcap,
 					(ParamFloat<px4::params::VT_DIA_ROT_P>) _param_vt_dia_rot_p,

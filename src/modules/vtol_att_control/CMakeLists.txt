@@ -35,6 +35,7 @@ px4_add_module(
 	MAIN vtol_att_control
 	SRCS
 		vtol_att_control_main.cpp
+		diamond_landing_stage.cpp
 		tiltrotor.cpp
 		vtol_type.cpp
 		tailsitter.cpp
