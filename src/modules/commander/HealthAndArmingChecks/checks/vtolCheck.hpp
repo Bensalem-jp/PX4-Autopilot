@@ -47,5 +47,16 @@ public:
 	void checkAndReport(const Context &context, Report &reporter) override;
 
 private:
+	void checkWeatherModeUnchanged(const Context &context, Report &reporter);
+
 	uORB::Subscription _vtol_vehicle_status_sub{ORB_ID(vtol_vehicle_status)};
+
+	// VT_DIA_WX_MODE as it was the first time this check ran, which is the value
+	// the airframe script read at boot. See checkWeatherModeUnchanged().
+	int32_t _boot_weather_mode{0};
+	bool _boot_weather_mode_latched{false};
+
+	DEFINE_PARAMETERS_CUSTOM_PARENT(HealthAndArmingCheckBase,
+					(ParamInt<px4::params::VT_DIA_WX_MODE>) _param_vt_dia_wx_mode
+				       )
 };

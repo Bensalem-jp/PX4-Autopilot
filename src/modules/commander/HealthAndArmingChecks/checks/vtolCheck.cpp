@@ -35,8 +35,50 @@
 
 using namespace time_literals;
 
+void VtolChecks::checkWeatherModeUnchanged(const Context &context, Report &reporter)
+{
+	const int32_t weather_mode = _param_vt_dia_wx_mode.get();
+
+	// Latched on the first run, i.e. at boot: commander starts after the airframe
+	// script has read VT_DIA_WX_MODE and written the parameters that differ between
+	// a calm and a windy mission. Nothing applies those again later, so a mode
+	// changed during flight prep -- without the reboot the parameter's
+	// @reboot_required asks for -- would fly the previous regime with no warning at
+	// all, e.g. a calm configuration into 20 m/s of wind.
+	//
+	// The latch lives here rather than in vtol_att_control on purpose: this check
+	// has to hold whenever commander can arm, and vtol_vehicle_status is only
+	// published once the rate control loop is running, so a check keyed off that
+	// topic would silently pass whenever the topic is absent.
+	if (!_boot_weather_mode_latched) {
+		_boot_weather_mode = weather_mode;
+		_boot_weather_mode_latched = true;
+	}
+
+	// Not sticky on purpose: nothing in the firmware acts on VT_DIA_WX_MODE after
+	// boot, so a mode set back to the booted one leaves the aircraft in exactly the
+	// configuration the script applied, and refusing to arm then would be a false
+	// alarm.
+	if (!context.status().is_vtol || weather_mode == _boot_weather_mode) {
+		return;
+	}
+
+	/* EVENT
+	 */
+	reporter.armingCheckFailure(NavModes::All, health_component_t::system,
+				    events::ID("check_vtol_weather_mode_changed"),
+				    events::Log::Error,
+				    "Weather mode changed since boot. Reboot to apply it before flying");
+
+	if (reporter.mavlink_log_pub()) {
+		mavlink_log_info(reporter.mavlink_log_pub(), "Preflight Fail: weather mode changed, reboot required\t");
+	}
+}
+
 void VtolChecks::checkAndReport(const Context &context, Report &reporter)
 {
+	checkWeatherModeUnchanged(context, reporter);
+
 	vtol_vehicle_status_s vtol_vehicle_status;
 
 	if (_vtol_vehicle_status_sub.copy(&vtol_vehicle_status)) {
