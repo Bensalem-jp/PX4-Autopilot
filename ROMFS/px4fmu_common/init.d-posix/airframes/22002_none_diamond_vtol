@@ -160,6 +160,12 @@ param set VT_ARSP_TRANS 15
 # otherwise drive TECS underspeed pitch-downs (the 20-30 m altitude
 # pumps at each turn, runs 17/19).
 param set FW_AIRSPD_TRIM 17
+# Airspeed-setpoint clamp, pinned at the PX4 default rather than inherited from
+# it. FW_AIRSPD_MAX clamps the SETPOINT, so a trim above it saturates in silence
+# (trim 26 and 28 both flew ~20 m/s). The wind branch below raises the pair
+# together; PX4 autosaves both, so without this line a calm mission after a wind
+# one would cruise at a clamp nobody chose.
+param set FW_AIRSPD_MAX 20
 param set VT_TILT_TRANS 0.35
 param set VT_BT_TILT_DUR 0.5
 # Back-transition backstop, NOT the exit (T12). With no wind the airframe
@@ -511,9 +517,17 @@ then
 	# mission. It is kept here so the regime table is complete and so the
 	# value cannot be inherited from a previous calm run's bson residue.
 	param set MPC_XY_CRUISE 1.5
+	# Cruise airspeed for a headwind leg: progress needs airspeed above the
+	# wind. At the calm trim 17 into 15 m/s the leg makes ~2 m/s over the
+	# ground and the mission budget expires mid-leg. Each bucket takes what
+	# its own CEILING needs, so the validated campaign point sits at the
+	# worst case of the bucket: mode 1 tops out at 17 m/s -> 22 (= wind+5).
+	# The cost at the bottom of the bucket is cruise power, not margin.
+	param set FW_AIRSPD_TRIM 22
+	param set FW_AIRSPD_MAX 25
 fi
 
-# VT_PITCH_MIN is the only bucketed entry: vt_pitch_min_for_wind() clamps to
+# Bucketed entries -- the only place modes 1 and 2 differ: vt_pitch_min_for_wind()
 # +3 deg only ABOVE 17 m/s, so modes 0 and 1 share the -1.0 set above. At
 # 15 m/s the -1 config climbed in 72 s vs ~115 s with +3 (the pusher diverts
 # more of the demand gap to tilt); at 20 m/s a -1 deg lean costs ~41 N of
@@ -521,4 +535,8 @@ fi
 if param compare VT_DIA_WX_MODE 2
 then
 	param set VT_PITCH_MIN 3.0
+	# The >17 m/s bucket's ceiling is the 20 m/s demonstrated envelope:
+	# trim 26 (= wind+6) is the value the 20 m/s campaign flew.
+	param set FW_AIRSPD_TRIM 26
+	param set FW_AIRSPD_MAX 29
 fi
