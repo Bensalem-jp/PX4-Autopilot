@@ -242,9 +242,13 @@ param set VT_DIA_PQ_T 1.0
 # immediate forward push (same value as the validated T7 rotation
 # floor). Wind stages 0.0 (its rotation floor covers the same window).
 param set VT_DIA_P1T_FLR 0.15
-# FW lift-fan floor: wing carries ~90 N at 16.5 m/s; lift fans hold
-# 15% instead of tracking cruise throttle (T1 cruise trim ~0.195).
+# Lift-fan floors (independent params). FW floor: wing carries ~90 N
+# at 16.5 m/s; lift fans hold this instead of tracking cruise throttle
+# (T1 cruise trim ~0.195). It is a power trade (~300 W at 0.15, sim T6).
+# TR floor: lower bound through both transitions, the run-33 roll /
+# louver-yaw authority safeguard. Sweeping the FW floor leaves it intact.
 param set CA_DIA_FW_LF_MIN 0.15
+param set CA_DIA_TR_LF_MIN 0.15
 # Wind-hover elevon assist (T6): blend MC roll/pitch demands onto the
 # elevons scaled by qbar/200 Pa (full authority ~18 m/s airspeed).
 # Calm air -> zero contribution (hover regression identical).

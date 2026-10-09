@@ -134,6 +134,7 @@ private:
 		param_t ca_diamond_fiw_arm;
 		param_t ca_diamond_fiw_ct;
 		param_t ca_diamond_fw_lift_fan_min;
+		param_t ca_diamond_tr_lift_fan_min;
 	};
 
 	ParamHandles _param_handles{};
@@ -158,6 +159,10 @@ private:
 	// 0 = stock rotors-off behavior; the diamond airframe sets ~0.15
 	// because the wing carries only ~90 N at transition speed.
 	float _param_fw_lift_fan_min{0.0f};
+	// Transition floor for the UNTILTABLE lift fans (normalized 0..1),
+	// lower bound in both transition directions (run-33 authority
+	// safeguard). Independent of the FW floor above.
+	float _param_tr_lift_fan_min{0.15f};
 
 	// Tilt handling during motor spoolup
 	bool throttleSpoolupFinished();

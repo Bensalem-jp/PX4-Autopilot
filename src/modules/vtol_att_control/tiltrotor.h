@@ -137,6 +137,21 @@ private:
 	// surfaces carry the slow wing-moment trim).
 	float _elev_trim_state{0.f};
 	hrt_abstime _elev_trim_last_us{0};
+	// BT->MC elevon hand-over (VT_DIA_ELEV_HT): last published elevon
+	// pitch command, the decaying hold captured from it at the switch,
+	// and the qbar at the switch (release scales with qbar_now / this).
+	float _elev_pitch_last_pub{0.f};
+	float _elev_handover_hold{0.f};
+	float _elev_handover_qbar{0.f};
+	hrt_abstime _elev_handover_last_us{0};
+	// BT pitch-seed low-pass (VT_DIA_BT_PSEED): measured pitch filtered
+	// while in FW_MODE; NAN = not initialised (re-armed on FW entry).
+	float _bt_pitch_lpf{NAN};
+	hrt_abstime _bt_pitch_lpf_last_us{0};
+	// BT low-airspeed elevon freeze (VT_DIA_BT_EFRZ): held pitch torque
+	// and latch; cleared whenever the mode is not TRANSITION_BACK.
+	float _bt_elev_freeze_val{0.f};
+	bool _bt_elev_frozen{false};
 	// Weather regime as it was at boot, i.e. the one the airframe script
 	// configured the aircraft for.  Read once rather than live: the arming
 	// check refuses a mode changed before takeoff, but nothing stops a mode
@@ -153,6 +168,10 @@ private:
 					(ParamInt<px4::params::VT_DIA_WX_MODE>) _param_vt_dia_wx_mode,
 					(ParamFloat<px4::params::VT_DIA_ELEV_QB>) _param_vt_dia_elev_qbar,
 					(ParamFloat<px4::params::VT_DIA_ELEV_QC>) _param_vt_dia_elev_qcap,
+					(ParamFloat<px4::params::VT_DIA_ELEV_HT>) _param_vt_dia_elev_ht,
+					(ParamFloat<px4::params::VT_DIA_BT_PSEED>) _param_vt_dia_bt_pseed,
+					(ParamFloat<px4::params::VT_DIA_BT_PMAX>) _param_vt_dia_bt_pmax,
+					(ParamFloat<px4::params::VT_DIA_BT_EFRZ>) _param_vt_dia_bt_efrz,
 					(ParamFloat<px4::params::VT_DIA_ROT_P>) _param_vt_dia_rot_p,
 					(ParamFloat<px4::params::VT_DIA_P1T_FLR>) _param_vt_dia_p1t_flr,
 					(ParamFloat<px4::params::VT_DIA_BT2MC_R>) _param_vt_dia_bt2mc_r,

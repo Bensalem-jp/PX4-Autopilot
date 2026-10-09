@@ -1,0 +1,599 @@
+#!/bin/sh
+#
+# @name Diamond-NG BWB-FIW VTOL (SITL)
+# @type VTOL Tiltrotor
+# @class VTOL
+# @maintainer BWB Project Team
+#
+# DIAMOND-NG VARIANT of 22002_none_diamond_vtol (SITL). Everything below is
+# the 22002 SITL file VERBATIM except the NG vehicle definition, enumerated
+# in tests/test_airframe_ng.py (NG_DIVERGENCES) so the two cannot drift:
+#   - CA_ROTOR0/1 PX/PY/CT, CA_DIA_FIW_ARM/CT: FIW at (0.609, +-0.330),
+#     CG x 0.5378 (BWB freeze spec 2026-09-06), cap 90 N/fan
+#   - CA_ROTOR2/3 PX/PY/CT: forward diverter exit at (0.176, +-0.1075),
+#     CT = 25 N raw x eta_div 0.834 = 20.85 N
+#   - MPC_THR_HOVER: m*g / (2*CT_fiw + 2*CT_fwd_raw*eta_div)
+#   - FW_AIRSPD_TRIM 22 / FW_AIRSPD_MAX 25 (calm, MAX = trim + 3 as the
+#     staging helpers require; the wind-regime branch keeps its values)
+#   - VT_ARSP_TRANS 17 (calm; the wind branch keeps its staged 14)
+#   The plant CL saturates at 0.633, so 16.73 kg stalls at ~18.0 m/s:
+#   the freeze-spec 18 m/s cruise sits AT stall and a 15 m/s snap enters
+#   FW at ~19 m/s (1.05 Vs, ng_calm_cnbpos_r1). 22 = 1.22 Vs.
+# Frame mapping (tests/test_px4_frame_mapping.py): sim body +X aft /
+# +Y starboard / +Z up -> PX = -(x - x_cg), PY = +y.
+# NOT RE-TUNED for NG: every gain and VT_* schedule is the
+# diamond-validated value (FW_THR_TRIM is NG force-balance trimmed) (TODO(NG) markers below). Runner:
+# scripts/px4_phase3_yaw_loop.py --mission --airframe ng.
+#
+# T3: PX4 tiltrotor VTOL transition for the diamond airframe.
+# Composition = the HOVER-VALIDATED plant geometry/gains/bypasses from
+# 22001_none_diamond_vtol (full-cascade hover PASS, 2026-07-13) + the
+# VTOL machinery (tilt-bound cruise fans, elevons on the FW matrix,
+# VT_* schedule). The T1 sim campaign (G-T1 all gates, 2026-07-14)
+# fixed the transition schedule this airframe encodes:
+#   - VT_TILT_TRANS 0.35 = the validated partial-diverter plateau
+#   - VT_ARSP_TRANS 15   = the validated snap speed
+#   - lift fans must NOT be hard-zeroed at cruise entry (wing carries
+#     only ~90 N at 16.5 m/s) — Diamond updateSetpoint exception, T3-2
+#
+# BOOT-PARITY CONTRACT (C3-1): the boot state must equal the CALM-validated
+# configuration, because a real FC has no mission runner to stage params.
+# Enforced by tests/test_airframe_boot_parity.py against the production
+# staging lists in bwb_vtol/px4_staging.py: every param staged by BOTH
+# build_wind_stage_params() and build_calm_restore_params() must boot at its
+# calm value.  Params staged only on the calm side are EXEMPT — their boot
+# value is what a wind run actually flies until FW entry, so changing them
+# would silently retune the wind campaign (see the test's exemption table).
+# Second, weaker rule (presence, not value): every param ANY staging list
+# writes — including the FW-entry landing stage — must be forced here, so no
+# autosaved in-flight value can survive into the next boot.
+#
+# PROVISIONAL output mapping (verify in T3-0 static channel check):
+# servo function order follows the DiamondVTOL actuator add order
+# (tilts -> louvers on matrix 0, elevons on matrix 1):
+#   controls[0-3] = Motors 0-3 (FIW L/R, Fwd L/R)
+#   controls[4]   = Tilt L   (Servo1)
+#   controls[5]   = Tilt R   (Servo2)
+#   controls[6]   = Louver L (Servo3, NEGATED in mavlink_bridge FRD->FLU)
+#   controls[7]   = Louver R (Servo4, negated)
+#   controls[8]   = Elevon L (Servo5)
+#   controls[9]   = Elevon R (Servo6)
+
+. ${R}etc/init.d/rc.vtol_defaults
+
+# --- Diamond VTOL effectiveness class (ALL GEOMETRY FORCED) ---
+# 'param set' (not set-default): set-default does not override values
+# persisted from prior sessions (hover-phase lesson).
+param set CA_AIRFRAME 13
+
+# --- Control allocation: 4 rotors, hover-validated physical values ---
+param set CA_ROTOR_COUNT 4
+
+# Rotor 0: FIW Left lift fan
+param set CA_ROTOR0_PX -0.0712
+param set CA_ROTOR0_PY 0.33
+param set CA_ROTOR0_PZ 0.0
+param set CA_ROTOR0_AX 0.0
+param set CA_ROTOR0_AY 0.0
+param set CA_ROTOR0_AZ -1.0
+param set CA_ROTOR0_CT 90.0
+# KM=0: ducted fans, plant models no spin reaction torque. Non-zero KM
+# makes the allocator route yaw to differential thrust (a FAKE path --
+# zero real yaw moment), starving the louver and driving a +/-16 deg
+# yaw limit cycle with M0-M3 antiphase swings. ALL yaw = louver columns.
+param set CA_ROTOR0_KM 0.0
+
+# Rotor 1: FIW Right lift fan
+param set CA_ROTOR1_PX -0.0712
+param set CA_ROTOR1_PY -0.33
+param set CA_ROTOR1_PZ 0.0
+param set CA_ROTOR1_AX 0.0
+param set CA_ROTOR1_AY 0.0
+param set CA_ROTOR1_AZ -1.0
+param set CA_ROTOR1_CT 90.0
+param set CA_ROTOR1_KM 0.0
+
+# Rotor 2: Forward Left fan (diverter -> tilt servo 1)
+param set CA_ROTOR2_PX 0.3618
+param set CA_ROTOR2_PY 0.1075
+param set CA_ROTOR2_PZ 0.0
+param set CA_ROTOR2_AX 0.0
+param set CA_ROTOR2_AY 0.0
+param set CA_ROTOR2_AZ -1.0
+param set CA_ROTOR2_CT 20.85
+param set CA_ROTOR2_KM 0.0
+param set CA_ROTOR2_TILT 1
+
+# Rotor 3: Forward Right fan (diverter -> tilt servo 2)
+param set CA_ROTOR3_PX 0.3618
+param set CA_ROTOR3_PY -0.1075
+param set CA_ROTOR3_PZ 0.0
+param set CA_ROTOR3_AX 0.0
+param set CA_ROTOR3_AY 0.0
+param set CA_ROTOR3_AZ -1.0
+param set CA_ROTOR3_CT 20.85
+param set CA_ROTOR3_KM 0.0
+param set CA_ROTOR3_TILT 2
+
+# --- Tilt servos (diverter valves, 0=hover/down .. 90=cruise/forward) ---
+# CA_SV_TL_COUNT is MANDATORY: default 0 silently drops both tilt
+# actuators, shifting the servo order to louvers=Servo1/2 and
+# elevons=Servo3/4 (caught by the G6-T3 static channel check: louver
+# yaw commands were routed into the env diverter, 61% hover diversion).
+param set CA_SV_TL_COUNT 2
+param set CA_SV_TL0_MINA 0
+param set CA_SV_TL0_MAXA 90
+param set CA_SV_TL0_TD 0
+param set CA_SV_TL0_CT 0
+param set CA_SV_TL1_MINA 0
+param set CA_SV_TL1_MAXA 90
+param set CA_SV_TL1_TD 0
+param set CA_SV_TL1_CT 0
+
+# --- Elevons (FW matrix in the Diamond class -> no MC pitch steal) ---
+# Real Cm_de 0.235/rad measured (diamond .stab, 2026-07-14).
+param set CA_SV_CS_COUNT 2
+param set CA_SV_CS0_TYPE 5
+# TRQ_R signs FLIPPED (A/B, GM run 3): both OFFBOARD and mission FW
+# entries die with an identical sub-second roll snap the instant the
+# elevons unlock -- consistent with an inverted roll-torque sign
+# (positive feedback), not with random garbage setpoints.
+param set CA_SV_CS0_TRQ_R 0.5
+# Elevon pitch sign: NEGATIVE. The elevon surfaces sit AFT of the CG
+# (TE x ~ 0.85-1.0 vs CG 0.533): TE-down = nose-DOWN, and the diamond
+# plant6dof json carries Cm_de = -0.235/rad (the .stab magnitude; the
+# earlier '+0.235' bootstrap note dropped the sign). GM run 13's env
+# moment log confirmed: positive collective -> negative elevon_My.
+param set CA_SV_CS0_TRQ_P -0.5
+param set CA_SV_CS1_TYPE 6
+param set CA_SV_CS1_TRQ_R -0.5
+param set CA_SV_CS1_TRQ_P -0.5
+
+# --- Diamond louver yaw vectoring (hover-validated) ---
+param set CA_DIA_LVR_K 0.015
+param set CA_DIA_LVR_MAX 0.349
+param set CA_DIA_FIW_ARM 0.33
+param set CA_DIA_FIW_CT 90.0
+
+# --- Output function mapping (PROVISIONAL, see header) ---
+param set PWM_MAIN_FUNC1 101
+param set PWM_MAIN_FUNC2 102
+param set PWM_MAIN_FUNC3 103
+param set PWM_MAIN_FUNC4 104
+param set PWM_MAIN_FUNC5 201
+param set PWM_MAIN_FUNC6 202
+param set PWM_MAIN_FUNC7 203
+param set PWM_MAIN_FUNC8 204
+param set PWM_MAIN_FUNC9 205
+param set PWM_MAIN_FUNC10 206
+
+# --- VTOL transition schedule (T1-validated) ---
+param set VT_TYPE 1
+# 15 = the T4 calm-validated snap speed. The T7 wind campaign needs 14
+# (10 m/s headwind: plateau equilibrium 14.8 sat 0.2 below the gate and
+# a PERFECT plateau was timeout-aborted) — but 14 in CALM ends the
+# transition 1 m/s slow and widened the FW capture (calm regression:
+# track 93 m vs the 42-45 baseline). The runner stages 14 when wind is
+# requested; boot default stays the calm-validated 15.
+# NG: 17 (AirframeProfile.vt_arsp_trans_calm_mps, pushed by the calm
+# restore). P2 adds ~4 m/s, so FW entry lands at ~21 m/s > 1.1 Vs.
+param set VT_ARSP_TRANS 17
+# Cruise 2 m/s above the transition speed: bank-induced airspeed dips
+# otherwise drive TECS underspeed pitch-downs (the 20-30 m altitude
+# pumps at each turn, runs 17/19).
+# NG: 22 m/s calm cruise trim (1.22 Vs; the freeze-spec 18 is the plant
+# stall speed). The runner's calm restore pushes the same 22
+# (AirframeProfile.fw_airspd_trim_calm_mps).
+param set FW_AIRSPD_TRIM 22
+# Airspeed-setpoint clamp, pinned at the PX4 default rather than inherited from
+# it. FW_AIRSPD_MAX clamps the SETPOINT, so a trim above it saturates in silence
+# (trim 26 and 28 both flew ~20 m/s). The wind branch below raises the pair
+# together; PX4 autosaves both, so without this line a calm mission after a wind
+# one would cruise at a clamp nobody chose.
+param set FW_AIRSPD_MAX 25
+param set VT_TILT_TRANS 0.35
+param set VT_BT_TILT_DUR 0.5
+# Back-transition backstop, NOT the exit (T12). With no wind the airframe
+# cannot shed speed outside the BT flare (CD 0.0066 => ~2 N drag, tau
+# ~100 s): the 10 s default exited at 19 m/s and MC then wandered an
+# orbital trap it could never capture (15calm_r1, budget death at alt
+# 20.7). The real calm exit is the SPEED condition (vel0 < MPC_XY_CRUISE,
+# measured flare decel 0.72 m/s^2 => ~25 s from the 23.4 zoom peak).
+# Wind stages 17 (its limbo departs on standing qbar).
+param set VT_B_TRANS_DUR 28
+# VT_FW_MIN_ALT 0 = DISABLED for SITL. The T3-0 value (5) mistranslated
+# the GT gate criterion 'alt LOSS < 5 m' into a minimum-altitude
+# quadchute: PX4 local altitude at the hover hold is only ~1.5 m
+# (EKF-origin relative), so P1 quad-chuted instantly (MinAltBreached)
+# and the tilt never ramped. Real-aircraft ops value TBD at bench.
+param set VT_FW_MIN_ALT 0
+# Plateau Fx ~6 N at hover trim -> ~0.5 m/s^2: 15 m/s needs ~30 s.
+# Default 15 s would quad-chute mid-acceleration.
+# 90 (was 60): high-wind plateaus are slow to build airspeed; aborting
+# a stable plateau by timer is strictly worse than waiting.
+param set VT_TRANS_TIMEOUT 90
+# P2 diverter ramp slowed: the default 0.5 s full-open step kicked a
+# pitch-trim transient past 30 deg (run 29). 2.5 s lets the attitude
+# hold track the changing trim as the wing takes the load.
+param set VT_TRANS_P2_DUR 2.5
+
+# --- T3-2 diamond transition extensions (fork params) ---
+# Pitch-quiet gate: hold the 0.35 plateau until |pitch| < 5 deg AND
+# |pitch rate| < 15 deg/s sustained 1.0 s (T1 stage-2 attitude gate).
+param set VT_DIA_PQ_ANG 5.0
+param set VT_DIA_PQ_RATE 15.0
+param set VT_DIA_PQ_T 1.0
+# P1 backward-drift guard: floor the diverter tilt from the first
+# front-transition cycle. The mission handover seeds a ~1 s backward
+# trajectory setpoint at P1 entry and then goes NaN; with the stock
+# zero-start ramp the vehicle drifts backward (r4: u_body -1.5 m/s at
+# P1+1 s) and the reversed-flow weathervane departs in yaw at qbar
+# ~30 Pa (the calm climb yaw-divergence class, ~1/8). 0.15 = ~3.3 N
+# immediate forward push (same value as the validated T7 rotation
+# floor). Wind stages 0.0 (its rotation floor covers the same window).
+param set VT_DIA_P1T_FLR 0.15
+# Lift-fan floors (independent params). FW floor: wing carries ~90 N
+# at 16.5 m/s; lift fans hold this instead of tracking cruise throttle
+# (T1 cruise trim ~0.195). It is a power trade (~300 W at 0.15, sim T6).
+# TR floor: lower bound through both transitions, the run-33 roll /
+# louver-yaw authority safeguard. Sweeping the FW floor leaves it intact.
+param set CA_DIA_FW_LF_MIN 0.15
+param set CA_DIA_TR_LF_MIN 0.15
+# Wind-hover elevon assist (T6): blend MC roll/pitch demands onto the
+# elevons scaled by qbar/200 Pa (full authority ~18 m/s airspeed).
+# Calm air -> zero contribution (hover regression identical).
+param set VT_DIA_ELEV_QB 200.0
+# Cap the delivered elevon authority at the 12 m/s-validated level
+# (~90 Pa); uncapped, the added MC loop gain diverged in roll at
+# 138 Pa (T7 15 m/s run 2). Landed-gate lives in code (T7 run 4 A/B:
+# grounded elevon downforce pinned the takeoff).
+param set VT_DIA_ELEV_QC 100.0
+# BT->MC elevon hand-over: release the flare's nose-up elevon trim with
+# tau 2 s instead of a one-cycle step (2 Hz fan-only pitch limit cycle).
+param set VT_DIA_ELEV_HT 2.0
+# BT margin (2026-10-08): seed the flare PI from a 1 s pitch low-pass
+# (lockstep phase jitter decided pass/fail), cap the flare at 12 deg, and
+# freeze the elevon torque below 10 m/s (FW airspeed scaling ~10x gain).
+param set VT_DIA_BT_PSEED 1.0
+param set VT_DIA_BT_PMAX 12.0
+param set VT_DIA_BT_EFRZ 10.0
+# Wind-hover pusher assist (T7): in >=13 m/s headwind the MC position
+# controller leans -3.4 deg into the wind; on a winged airframe that is
+# negative alpha -> ~49 N downforce at 15 m/s, eating the entire thrust
+# margin (ground pin, T7 run 1). pusher_assist() clamps the lean at
+# VT_PITCH_MIN and diverts the rest to diverter tilt (forward force
+# replaces the lean). BOOT default EN=0: the runner stages EN=1
+# (takeoff rotation) then EN=2 (landing config) for WIND runs only —
+# calm keeps the T4 boot state (calm bisect: the T7 globals cost calm
+# track 61 -> 93-108 m).
+# LND_PITCH_MIN must match, else the clamp dies in LAND mode (-5 def).
+param set VT_FWD_THRUST_EN 0
+param set VT_FWD_THRUST_SC 1.2
+param set VT_PITCH_MIN -1.0
+param set VT_LND_PITCH_MIN -1.0
+# EN=2 gates the assist on dist_to_ground > MPC_LAND_ALT1 (10 m def).
+# 15 m/s run 2 diverged at 4.5 m: below the gate the drift-recovery
+# attitude demands push alpha to +9 deg where the static instability
+# (CP 0.24 vs CG 0.533) costs ~30 Nm at 138 Pa = full fan authority.
+# BOOT default stays 10 (T4 calm state); the runner stages 2.0 for
+# wind runs at FW entry (assist coverage down to 2 m on final).
+param set MPC_LAND_ALT1 10.0
+
+# --- Airspeed source: simulated pitot (bridge diff_pressure) ---
+# The bridge computes diff_pressure from the nose-ward groundspeed
+# (windless sim: airspeed == groundspeed exactly). Airspeed-less FW
+# flight had no TECS speed feedback (unbounded acceleration to 31 m/s,
+# GM run 15) and no FW_ARSP_SCALE gain scheduling (surface-loop gain
+# grew with qbar until the roll axis rang).
+param set SYS_HAS_NUM_ASPD 1
+param set ASPD_PRIMARY 1
+param set FW_USE_AIRSPD 1
+# Simulated pitot is exact and windless: the selector's failure checks
+# (stuck/innovation) latched it failed on the ground (GM run 16).
+param set ASPD_DO_CHECKS 0
+
+# --- T4 mission-mode FW cruise basics ---
+# Run-29 configuration: the run-23 base (which itself rings ~50% at
+# entry — run 28 reproduced the ring on identical params) + Cl_p for
+# the ring + TECS energy damping for the phugoid-scale slosh. Trim
+# stays 0.55 (0.15 did not tame the overspeed: the energy source is
+# the dives, not the throttle FF — 27b tas mean 25 at throttle 0).
+# NG: force-balance trim with the wind-axis aero (aero_wind_to_body_axes,
+# tests/test_ng_fw_trim_budget.py): 16.73 kg level at 22 m/s -> alpha
+# 6.98 deg, T = D/cos(alpha) = 9.32 N total; FW_THR_TRIM =
+# T / (2 fans x 25 N x eta_cruise 1.0) = 0.186. (The diamond 0.55 was
+# sized against the legacy body-axis aero, whose CL*sin(alpha) fake drag
+# needed ~29 N.) TODO(NG): confirm against the first NG steady-FW run.
+param set FW_THR_TRIM 0.19
+# TECS de-tuned for a slippery L/D~20 airframe: slower energy transfer
+# and real pitch damping kill the kinetic<->potential slosh that fed
+# every wander (26/27b: 50-70 m alt pumps, tas 20-30 vs sp 17).
+# ALT_TC 10 -> 3: the FW_USE_AIRSPD=1 restore collapsed the calm cruise
+# alt band from 8.2-9.0 m to 5.1-5.6 m, grazing the 5.0 gate from above;
+# CAS-tracking TECS can take a tighter altitude loop (band scales with
+# the TC: 5.3 * 3/5 ~ 3.2 m). Every calm E2E since flew 3.0 staged by
+# the runner — this line only removes the runner dependency. Wind
+# restores the vtol default 5.0 in its own stage (the whole T5-T14 wind
+# envelope was validated on it). TAS_TC stays 10 in both regimes.
+param set FW_T_ALT_TC 3.0
+param set FW_T_TAS_TC 10.0
+param set FW_T_PTCH_DAMP 0.3
+param set FW_T_CLMB_MAX 3.0
+param set FW_T_SINK_MAX 3.0
+param set FW_T_SINK_MIN 1.5
+param set NAV_ACC_RAD 60
+param set NAV_LOITER_RAD 80
+# FW waypoint acceptance also gates on altitude: |alt err| must be
+# inside NAV_FW_ALT_RAD at the same time as the xy radius. 20 m gives
+# the sim TECS margin while alt-band quality is scored by the runner.
+param set NAV_FW_ALT_RAD 20
+# Guidance-attitude timescale separation: stock 10 s limit-cycles
+# against the 0.8 s attitude TC (run 17 weave), 18 s converges too
+# slowly to enter the WP cylinder (run 19: 95 m abeam pass). 13 s.
+param set NPFG_PERIOD 13
+
+# --- Transition porpoise damping (ulog-diagnosed marginal loop) ---
+# During P1/P2 fw_att publishes vehicle_rates_setpoint (v1.15 routes rate-SP
+# generation to the FW attitude loop for the whole front transition) and the
+# MC rate controller tracks it on the lift fans. With the stock gains
+# (P=1/FW_P_TC=2.5, clamps 60/70 deg/s) that hybrid loop is marginally
+# stable at ~1 Hz: dying runs saturate the +1.05 rad/s clamp and trip the
+# rate shield. The diamond only needs "hold level" during transition, so
+# halve the loop gain and cap the FW rate demand below the 15 deg/s
+# pitch-quiet gate.
+# Attitude time constants stay at 0.8 s: run 17 flew 167 s stably on
+# them; restoring stock 0.4 s (run 18) sent the roll axis unstable
+# within 13 s of FW entry against the full-strength diamond elevons.
+# The run-17 +-30 deg weave is treated at its source instead: the
+# NPFG period (below).
+param set FW_P_TC 0.8
+param set FW_R_TC 0.8
+# TRANSITION-safe rate caps. These params serve two regimes: the
+# transition hybrid loop (fw_att rate SPs tracked by the MC rate
+# controller on the fans) wants them LOW — 25 deg/s reintroduced an
+# intermittent transition roll ring (run 22, ~1-in-8) with the
+# full-strength diamond Cl_da — while FW-mode TECS capture and NPFG
+# banking want 25 deg/s (run 14). The GM runner STAGES them: 12 here
+# for the transition, pushed to 25 the moment FW is reached.
+param set FW_P_RMAX_POS 12.0
+param set FW_P_RMAX_NEG 12.0
+param set FW_R_RMAX 12.0
+# Bank limit: keep NPFG intercept banks 15 deg under the runner's 45 deg
+# roll shield (MC-tuned); 30 deg is ample for 900 m mission legs.
+param set FW_R_LIM 30.0
+# FW roll rate loop: feedback-dominant with LOW FF. The sim aero has
+# no Cl_p roll damping, so the stock FF=0.5 settles at p ~ 11x the
+# setpoint (GM run 9b). FF 0.05 keeps the loop feedback-led. P stays
+# at the stock 0.05: run 9b's '19.6 Nm/unit' authority measurement was
+# taken while the env loaded the bn005546 derivative set (~4.4x weaker
+# Cl_da than the diamond json) — with the correct diamond derivatives
+# the plant gain is ~4.4x higher and P=0.15 would put the crossover
+# into the elevon-lag phase cliff.
+param set FW_RR_FF 0.05
+param set FW_RR_P 0.05
+
+# --- SITL bypass parameters (hover-validated) ---
+param set COM_ARM_WO_GPS 1
+param set COM_RC_IN_MODE 4
+param set NAV_RCL_ACT 0
+param set NAV_DLL_ACT 0
+param set CBRK_SUPPLY_CHK 894281
+param set COM_LOW_BAT_ACT 0
+param set FD_ACT_EN 0
+
+# --- EKF2 preflight relaxations (SITL only, hover-validated) ---
+param set COM_ARM_EKF_HGT 10.0
+param set COM_ARM_EKF_VEL 10.0
+param set COM_ARM_EKF_POS 10.0
+param set COM_ARM_EKF_YAW 1.57
+param set COM_ARM_IMU_ACC 1.0
+param set COM_ARM_IMU_GYR 0.25
+
+# --- MC attitude/rate gains (NG "att12" set, 2026-10-08) ---
+# The diamond gains (ROLL/PITCH_P 1.89, ROLLRATE_K 3.60, PITCHRATE_K 2.68)
+# put the NG rate crossovers at ~18 (pitch) / ~54 (roll) rad/s against
+# 0.15-0.20 s fan lags (NG authority/inertia is 1.18x / 1.53x the diamond):
+# the attitude loop limit-cycled at 0.8 Hz right after every back-
+# transition and the 4-lap mission never landed. att12 landed the 4-lap
+# mission (780 s, 328 Wh) and the 4.40-4.60 km straight-leg phase sweep.
+# Lower (K 0.5/0.35) loses the P1 nose-down fight at transition start.
+# Rate D 0.008 (att12d): phase lead against the ~0.35 s torque->q lag;
+# closed the one att12 miss (4.56 km leg) and kept the 4-lap landing.
+# Source of truth: isaac px4/airframes/22001_none_bwb_fiw (post-#130/#131).
+# Yaw attitude P lowered 1.5 -> 0.9: observed closed-loop zeta ~0.26
+# (G5 overshoot 43%). Lower outer-loop bandwidth raises damping.
+param set MC_ROLL_P 1.2
+param set MC_PITCH_P 1.2
+param set MC_YAW_P 0.9
+param set MC_ROLLRATE_K 0.8
+param set MC_ROLLRATE_P 0.15
+param set MC_ROLLRATE_I 0.041
+param set MC_ROLLRATE_D 0.008
+param set MC_PITCHRATE_K 1.2
+param set MC_PITCHRATE_P 0.15
+param set MC_PITCHRATE_I 0.041
+param set MC_PITCHRATE_D 0.008
+param set MC_YAWRATE_K 4.03
+param set MC_YAWRATE_P 0.25
+param set MC_YAWRATE_I 0.05
+
+# Transition-sized rate-integrator headroom. T1 used 1.0 WITH a wing
+# trim feedforward; PX4 MC attitude mode has no trim FF, so the whole
+# aero pitch moment (~2+ Nm at 7 m/s, growing with qbar; probe run 15:
+# level attitude setpoint but the vehicle drifts nose-up and brakes)
+# must fit in the integrator.
+param set MC_PR_INT_LIM 3.0
+
+# --- Hover thrust fraction (NG physical) ---
+# MPC_THR_HOVER = m*g / (2*CT_fiw + 2*CT_fwd_raw*eta_div)
+#               = 16.73*9.80665 / (2*90 + 2*25*0.834) = 164.06 / 221.7 = 0.740
+# (diamond: 107 N / 180 N = 0.594). TODO(NG): the MC gains below were
+# loop-shaped around the diamond 0.594 hover point and diamond inertia.
+param set MPC_THR_HOVER 0.74
+param set MPC_THR_MAX 1.0
+# Takeoff punch (T7): in 15 m/s wind the liftoff needs ~0.9+ throttle
+# but the ground-frozen climb integrator leaves only the P-term around
+# the 0.594 calm hover center -> converged pin at 0.77-0.91 (runs
+# 1/3/6, marginal coin-flip vs runs 4/5). The runner stages 2.5 for
+# WIND runs; boot keeps the T4 1.5 (2.5 in calm shifted the FW-entry
+# state: track 61 -> 93-108 m).
+param set MPC_TKO_SPEED 1.5
+
+# --- Velocity/position loop limits (hover-validated) ---
+param set MPC_TILTMAX_AIR 12
+param set MPC_XY_VEL_P_ACC 0.47
+param set MPC_XY_VEL_I_ACC 0.042
+param set MPC_XY_VEL_D_ACC 0.1
+param set MPC_Z_VEL_P_ACC 2.5
+param set MPC_Z_VEL_I_ACC 0.8
+param set MPC_XY_P 0.158
+param set MPC_Z_P 0.6
+param set MPC_XY_VEL_MAX 1.0
+param set MPC_Z_VEL_MAX_UP 1.0
+param set MPC_Z_VEL_MAX_DN 0.7
+param set MPC_ACC_HOR_MAX 2.0
+param set MPC_ACC_UP_MAX 2.0
+param set MPC_ACC_DOWN_MAX 1.5
+param set MPC_JERK_MAX 5.0
+
+# Airmode: roll/pitch priority (hover-validated)
+param set MC_AIRMODE 1
+
+# --- Boot-parity block: wind-staged params forced at their CALM value ---
+# These are staged by BOTH the wind stage and the calm restore, so the boot
+# value is dead in SITL either way. Each one's calm value happens to equal
+# the PX4 default, so forcing it changes no behaviour — it defends against a
+# value persisted from a previous session (bson residue), which on a real FC
+# is the same failure mode the header's 'param set not set-default' lesson
+# describes. Wind values in parentheses are staged by the runner.
+param set LNDMC_TRIG_TIME 1.0
+# (wind 5.0 — a long trigger time keeps a gusty touchdown from latching)
+param set MIS_YAW_ERR 12
+# (wind 175 — effectively disables the WP yaw gate in a crosswind)
+param set MPC_XY_CRUISE 5
+# (wind 1.5 — also the calm back-transition SPEED exit, see VT_B_TRANS_DUR)
+param set VT_DIA_DST_P 0.0
+# (wind 3.0 — descent wing-unload pitch bias, wind-only)
+param set VT_DIA_ROT_P 0.0
+# (wind 3.0 — explicit wind-takeoff rotation, wind-only)
+
+# --- Landing-stage residue pin (C3-1 mechanism prerequisite) ---
+# These four are written ONLY at FW entry (build_landing_stage_params), and
+# nothing restores them: PX4 autosaves every param_set (all three exported
+# variants pass mark_saved=false), and the calm restore -- which wind runs
+# never receive, the two branches are exclusive -- does not carry VT_DIA_BT_*.
+# Their boot value today comes from a DEFAULT (PX4 3.0 / rc.vtol_defaults 5 /
+# fork 0.0), and a default loses to a persisted value, so a wind takeoff can
+# inherit MPC_ACC_HOR 0.8 from the previous calm landing. Forcing the same
+# values changes nothing that flies today and makes the boot state invariant
+# under any in-flight write -- the precondition for the FC-side mechanism
+# applying the landing configuration onboard.
+param set MPC_ACC_HOR 3.0
+# (calm landing 0.8 — gentle MC brake; wind keeps 3.0)
+param set MPC_XY_ERR_MAX 5
+# (wind landing 20 — Z-ramp unlock; rc.vtol_defaults only set-defaults this)
+param set VT_DIA_BT_MGN 0.0
+# (calm landing 35 — BT trigger margin; wind keeps 0)
+param set VT_DIA_BT_TPR 0.0
+# (calm landing 6 — flare taper knee; wind keeps 0)
+
+# --- Weather regime: wind overrides (C3-1 group A) ---
+# ONE operator switch replaces the 14 pre-mission param pushes the ground
+# runner used to send (build_wind_stage_params / build_calm_restore_params in
+# bwb_vtol/px4_staging.py). Until now the aircraft was only configured for its
+# mission while a laptop was talking to it.
+#
+# VT_DIA_WX_MODE 0 = calm, 1 = wind up to 17 m/s, 2 = wind above 17 m/s.
+# 3 is RESERVED for deriving the regime from the EKF wind estimate and is
+# deliberately not implemented (that path depends on airspeed_selector, whose
+# probabilistic stall is unresolved).
+#
+# Written as OVERRIDES rather than an if/else pair: every one of these params
+# already carries its calm value above, in the section that documents WHY that
+# value is what it is. So mode 0 executes exactly the file that flies today --
+# the calm campaign cannot regress -- and no value is stated in two places
+# where the two could drift apart. PX4 runs the script top to bottom and the
+# last assignment wins.
+#
+# VT_DIA_WX_MODE itself is the one param this file must NOT `param set`:
+# `param set` runs before the compare and autosaves, so forcing it would
+# overwrite the operator's selection on every boot and make one arm dead code.
+# It is declared with a default of 0 in tiltrotor_params.c and left to the
+# operator; parse_airframe_params() refuses a script that does both.
+#
+# The mode is read ONLY here, at boot. Changing it and taking off without a
+# reboot flies the PREVIOUS configuration -- the fork's arming check refuses
+# that (C3-1 step 5); until it lands, the reboot is a procedure.
+if param compare VT_DIA_WX_MODE 1 2
+then
+	# Pusher-assisted lean above the climb gate. EN=2, not 1: the EN=1
+	# climb-phase disable clause ground 240+ s of the T7 takeoff.
+	param set VT_FWD_THRUST_EN 2
+	# Land-mode altitude split: hold the descent to 2 m before the flare.
+	param set MPC_LAND_ALT1 2.0
+	# A headwind lowers the plateau equilibrium airspeed below the
+	# calm-validated 15.
+	param set VT_ARSP_TRANS 14.0
+	# TECS altitude time constant: the whole T5-T14 wind envelope was
+	# validated on the vtol default 5.0 (calm tightens it to 3.0 to close
+	# the cruise alt band).
+	param set FW_T_ALT_TC 5.0
+	# Stock P1 ramp: the headwind supplies immediately the airspeed that
+	# the calm 0.15 tilt floor exists to manufacture.
+	param set VT_DIA_P1T_FLR 0.0
+	# Takeoff punch -- and the climb cap raised to match. At the base 1.0
+	# the cap SILENTLY throttles the fans below hover at ~2 m (the wing
+	# already carries the load at 245 Pa) and the vehicle sags back into
+	# the collapse zone: ~1/6 of wind takeoffs were trapped there.
+	param set MPC_TKO_SPEED 2.5
+	param set MPC_Z_VEL_MAX_UP 3.0
+	# Deterministic ground rotation while landed with qbar > 20 Pa (fork):
+	# rotate on the gear and let the wing lift the vehicle off, instead of
+	# waiting for the pusher clamp that dies in climb-rate phases.
+	param set VT_DIA_ROT_P 3.0
+	# Crosswind sequencing: the airframe weathervanes nose-into-wind, so
+	# the mission must not wait for heading alignment to the leg.
+	param set MIS_YAW_ERR 175.0
+	# False-land guard: at the 20 m/s back-transition apex vz, groundspeed
+	# and thrust all fall to ~0 and the MC land detector fires -- PX4 once
+	# DISARMED at 33 m. 5 s outlasts the apex dwell; a touchdown holds far
+	# longer.
+	param set LNDMC_TRIG_TIME 5.0
+	# Descent wing-unload bias (fork): in strong wind the wing refuses the
+	# descent, the vertical loop throttles to zero chasing it and departs.
+	param set VT_DIA_DST_P 3.0
+	# Back-transition budget: hand over to MC inside the demonstrated
+	# stable region instead of wind-hovering under transition control laws
+	# at 138+ Pa (the speed exit cannot fire -- see MPC_XY_CRUISE below).
+	param set VT_B_TRANS_DUR 17.0
+	# MC reposition speed after the BT overshoot (the way back is a
+	# downwind drift). NOTE: mc_pos_control clamps MPC_XY_CRUISE to
+	# MPC_XY_VEL_MAX -- 1.0 in this file -- and COMMITS the clamped value
+	# (MulticopterPositionControl.cpp:184-186), so this line states the
+	# intent and only becomes effective once VEL_MAX is raised for the
+	# mission. It is kept here so the regime table is complete and so the
+	# value cannot be inherited from a previous calm run's bson residue.
+	param set MPC_XY_CRUISE 1.5
+	# Cruise airspeed for a headwind leg: progress needs airspeed above the
+	# wind. At the calm trim 17 into 15 m/s the leg makes ~2 m/s over the
+	# ground and the mission budget expires mid-leg. Each bucket takes what
+	# its own CEILING needs, so the validated campaign point sits at the
+	# worst case of the bucket: mode 1 tops out at 17 m/s -> 22 (= wind+5).
+	# The cost at the bottom of the bucket is cruise power, not margin.
+	param set FW_AIRSPD_TRIM 22
+	param set FW_AIRSPD_MAX 25
+fi
+
+# Bucketed entries -- the only place modes 1 and 2 differ: vt_pitch_min_for_wind()
+# +3 deg only ABOVE 17 m/s, so modes 0 and 1 share the -1.0 set above. At
+# 15 m/s the -1 config climbed in 72 s vs ~115 s with +3 (the pusher diverts
+# more of the demand gap to tilt); at 20 m/s a -1 deg lean costs ~41 N of
+# downforce against a 9 N climb margin, so there the clamp is what flies.
+if param compare VT_DIA_WX_MODE 2
+then
+	param set VT_PITCH_MIN 3.0
+	# The >17 m/s bucket's ceiling is the 20 m/s demonstrated envelope:
+	# trim 26 (= wind+6) is the value the 20 m/s campaign flew.
+	param set FW_AIRSPD_TRIM 26
+	param set FW_AIRSPD_MAX 29
+fi

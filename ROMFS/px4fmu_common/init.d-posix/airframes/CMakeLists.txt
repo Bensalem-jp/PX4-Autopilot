@@ -106,4 +106,5 @@ px4_add_romfs_files(
 	# [22000, 22999] Reserve for custom models
 	22001_none_diamond_vtol
 	22002_none_diamond_vtol
+	22003_none_diamond_ng_vtol
 )

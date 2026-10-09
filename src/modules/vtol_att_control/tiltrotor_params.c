@@ -175,6 +175,70 @@ PARAM_DEFINE_FLOAT(VT_DIA_ELEV_QB, 0.0f);
 PARAM_DEFINE_FLOAT(VT_DIA_ELEV_QC, 0.0f);
 
 /**
+ * Diamond BT->MC elevon hand-over hold time constant
+ *
+ * At the back-transition -> MC switch the elevon pitch command held
+ * through the flare is released with this exponential time constant
+ * (and scaled by qbar / qbar at the switch) instead of stepping to the
+ * MC value. 0 = legacy step release.
+ *
+ * @unit s
+ * @min 0.0
+ * @max 10.0
+ * @decimal 1
+ * @group VTOL Attitude Control
+ */
+PARAM_DEFINE_FLOAT(VT_DIA_ELEV_HT, 0.0f);
+
+/**
+ * Diamond back-transition pitch seed low-pass time constant
+ *
+ * The back-transition decel-PI integrator is seeded at BT entry from
+ * the measured pitch. With this > 0 the seed is taken from a first-order
+ * low-pass of the measured pitch (tau = this value, updated in FW mode)
+ * instead of the single live sample, removing the sample-phase jitter
+ * of the seed. 0 = legacy live-sample seed.
+ *
+ * @unit s
+ * @min 0.0
+ * @max 5.0
+ * @decimal 1
+ * @group VTOL Attitude Control
+ */
+PARAM_DEFINE_FLOAT(VT_DIA_BT_PSEED, 0.0f);
+
+/**
+ * Diamond back-transition pitch setpoint cap
+ *
+ * Upper (nose-up) limit on the back-transition pitch setpoint; the
+ * decel-PI integrator is clamped to the same value (anti-windup).
+ * 0 = legacy (no cap beyond the 0.3 rad internal limit).
+ *
+ * @unit deg
+ * @min 0.0
+ * @max 30.0
+ * @decimal 1
+ * @group VTOL Attitude Control
+ */
+PARAM_DEFINE_FLOAT(VT_DIA_BT_PMAX, 0.0f);
+
+/**
+ * Diamond back-transition elevon freeze airspeed
+ *
+ * During the back transition, once calibrated airspeed first drops
+ * below this value the elevon pitch torque is held at the value of
+ * that instant instead of following the FW rate loop (whose airspeed
+ * scaling amplifies the loop gain at low airspeed). 0 = legacy.
+ *
+ * @unit m/s
+ * @min 0.0
+ * @max 20.0
+ * @decimal 1
+ * @group VTOL Attitude Control
+ */
+PARAM_DEFINE_FLOAT(VT_DIA_BT_EFRZ, 0.0f);
+
+/**
  * Diamond wind-takeoff rotation pitch
  *
  * While landed in MC mode with meaningful airflow (qbar > 20 Pa) the

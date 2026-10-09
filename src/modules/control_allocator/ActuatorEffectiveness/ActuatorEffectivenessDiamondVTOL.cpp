@@ -56,6 +56,7 @@ ActuatorEffectivenessDiamondVTOL::ActuatorEffectivenessDiamondVTOL(ModuleParams 
 	_param_handles.ca_diamond_fiw_arm = param_find("CA_DIA_FIW_ARM");
 	_param_handles.ca_diamond_fiw_ct = param_find("CA_DIA_FIW_CT");
 	_param_handles.ca_diamond_fw_lift_fan_min = param_find("CA_DIA_FW_LF_MIN");
+	_param_handles.ca_diamond_tr_lift_fan_min = param_find("CA_DIA_TR_LF_MIN");
 
 	updateParams();
 	setFlightPhase(FlightPhase::HOVER_FLIGHT);
@@ -85,6 +86,10 @@ void ActuatorEffectivenessDiamondVTOL::updateParams()
 
 	if (_param_handles.ca_diamond_fw_lift_fan_min != PARAM_INVALID) {
 		param_get(_param_handles.ca_diamond_fw_lift_fan_min, &_param_fw_lift_fan_min);
+	}
+
+	if (_param_handles.ca_diamond_tr_lift_fan_min != PARAM_INVALID) {
+		param_get(_param_handles.ca_diamond_tr_lift_fan_min, &_param_tr_lift_fan_min);
 	}
 }
 
@@ -266,12 +271,13 @@ void ActuatorEffectivenessDiamondVTOL::updateSetpoint(const matrix::Vector<float
 			// gone). FLOOR the untiltable lift fans through the
 			// transition too; the slight excess lift is absorbed by
 			// the altitude loop and the alt-loss gate measures loss.
+			// Uses CA_DIA_TR_LF_MIN, independent of the FW floor.
 			if (_flight_phase == FlightPhase::TRANSITION_HF_TO_FF
 			    || _flight_phase == FlightPhase::TRANSITION_FF_TO_HF) {
 				for (int i = 0; i < _first_tilt_idx; ++i) {
 					if ((_untiltable_motors & (1u << i))
-					    && actuator_sp(i) < _param_fw_lift_fan_min) {
-						actuator_sp(i) = _param_fw_lift_fan_min;
+					    && actuator_sp(i) < _param_tr_lift_fan_min) {
+						actuator_sp(i) = _param_tr_lift_fan_min;
 					}
 				}
 			}

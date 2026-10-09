@@ -129,6 +129,30 @@ void Tiltrotor::update_vtol_state()
 	 * forward completely. For the backtransition the motors simply rotate back.
 	*/
 
+	// VT_DIA_BT_PSEED bookkeeping: low-pass the measured pitch while in
+	// FW so the BT entry seeds the decel PI from a filtered value (the
+	// live sample jumps ~0.3 deg with lockstep phase and that alone
+	// decided BT pass/fail on NG, 22003 ulogs 2026-10-08). Re-armed on
+	// every FW entry; no effect on any output unless PSEED > 0.
+	if (_vtol_mode == vtol_mode::FW_MODE) {
+		const float pitch_meas = Eulerf(Quatf(_v_att->q)).theta();
+		const hrt_abstime now_lpf = hrt_absolute_time();
+
+		if (!PX4_ISFINITE(_bt_pitch_lpf)) {
+			_bt_pitch_lpf = pitch_meas;
+
+		} else if (PX4_ISFINITE(pitch_meas)) {
+			const float dt_lpf = math::constrain((now_lpf - _bt_pitch_lpf_last_us) * 1e-6f, 0.f, 0.1f);
+			const float tau_lpf = math::max(_param_vt_dia_bt_pseed.get(), 0.01f);
+			_bt_pitch_lpf += dt_lpf / (tau_lpf + dt_lpf) * (pitch_meas - _bt_pitch_lpf);
+		}
+
+		_bt_pitch_lpf_last_us = now_lpf;
+
+	} else if (_vtol_mode != vtol_mode::TRANSITION_BACK) {
+		_bt_pitch_lpf = NAN;
+	}
+
 	if (_vtol_vehicle_status->fixed_wing_system_failure) {
 		// Failsafe event, switch to MC mode immediately
 		_vtol_mode = vtol_mode::MC_MODE;
@@ -157,7 +181,11 @@ void Tiltrotor::update_vtol_state()
 				// Defense-in-depth (review S1): a non-finite attitude
 				// quaternion (catastrophic EKF failure) must not poison
 				// the integrator — fall back to the stock zero seed.
-				const float seed_pitch = Eulerf(Quatf(_v_att->q)).theta();
+				// VT_DIA_BT_PSEED > 0: seed from the FW-mode
+				// low-pass instead of the live sample.
+				const float seed_pitch = (_param_vt_dia_bt_pseed.get() > FLT_EPSILON
+							  && PX4_ISFINITE(_bt_pitch_lpf))
+							 ? _bt_pitch_lpf : Eulerf(Quatf(_v_att->q)).theta();
 				_accel_to_pitch_integ = PX4_ISFINITE(seed_pitch)
 							? math::constrain(seed_pitch, 0.f, 0.3f) : 0.f;
 			}
@@ -219,6 +247,14 @@ void Tiltrotor::update_vtol_state()
 				// the switch instant (bumpless transfer origin).
 				_bt2mc_pitch_state = Eulerf(Quatf(_v_att->q)).theta();
 				_bt2mc_last_us = hrt_absolute_time();
+				// Elevon hand-over anchor (VT_DIA_ELEV_HT): the
+				// last BT elevon pitch command and the qbar it was
+				// flown at, released by decay in fill_actuator_outputs().
+				_elev_handover_hold = _elev_pitch_last_pub;
+				_elev_handover_qbar = PX4_ISFINITE(_airspeed_validated->calibrated_airspeed_m_s)
+						      ? 0.5f * 1.225f * _airspeed_validated->calibrated_airspeed_m_s
+						      * _airspeed_validated->calibrated_airspeed_m_s : 0.f;
+				_elev_handover_last_us = hrt_absolute_time();
 			}
 
 			break;
@@ -645,6 +681,18 @@ void Tiltrotor::update_transition_state()
 				bt_pitch *= ratio;
 			}
 
+			// VT_DIA_BT_PMAX: cap the nose-up flare plateau (stock
+			// 0.3 rad = 17 deg). The integrator is clamped too, or it
+			// would sit wound up at 0.3 behind the cap and delay any
+			// nose-down release. 0 = legacy.
+			const float bt_pmax = _param_vt_dia_bt_pmax.get();
+
+			if (bt_pmax > FLT_EPSILON) {
+				const float bt_pmax_rad = math::radians(bt_pmax);
+				_accel_to_pitch_integ = math::min(_accel_to_pitch_integ, bt_pmax_rad);
+				bt_pitch = math::min(bt_pitch, bt_pmax_rad);
+			}
+
 			_v_att_sp->pitch_body = bt_pitch;
 		}
 
@@ -787,6 +835,26 @@ void Tiltrotor::fill_actuator_outputs()
 		_torque_setpoint_1->xyz[1] = _vehicle_torque_setpoint_virtual_fw->xyz[1];
 		_torque_setpoint_1->xyz[2] = 0.f;
 
+		// VT_DIA_BT_EFRZ: below this CAS the FW rate loop's airspeed
+		// scaling (TRIM/max(V, STALL))^2 multiplies the elevator gain
+		// ~10x and the command limit-cycles at ~1.5 Hz into saturation.
+		// Hold the torque of the first sub-EFRZ cycle instead (it is the
+		// flare trim, +9..15 Nm). The held value is what reaches
+		// _elev_pitch_last_pub, so VT_DIA_ELEV_HT releases it at the MC
+		// switch. Latched for the rest of the BT. 0 = legacy.
+		const float cas_bt = _airspeed_validated->calibrated_airspeed_m_s;
+
+		if (_param_vt_dia_bt_efrz.get() > FLT_EPSILON) {
+			if (!_bt_elev_frozen && PX4_ISFINITE(cas_bt) && cas_bt < _param_vt_dia_bt_efrz.get()) {
+				_bt_elev_freeze_val = _torque_setpoint_1->xyz[1];
+				_bt_elev_frozen = true;
+			}
+
+			if (_bt_elev_frozen) {
+				_torque_setpoint_1->xyz[1] = _bt_elev_freeze_val;
+			}
+		}
+
 	} else if (_vtol_mode == vtol_mode::MC_MODE
 		   && _param_vt_dia_elev_qbar.get() > FLT_EPSILON
 		   && distToGround() > DIAMOND_UNLOAD_FLOOR_M
@@ -878,6 +946,39 @@ void Tiltrotor::fill_actuator_outputs()
 			}
 		}
 	}
+
+	if (_vtol_mode != vtol_mode::TRANSITION_BACK) {
+		_bt_elev_frozen = false;
+	}
+
+	// BT->MC elevon hand-over (VT_DIA_ELEV_HT). The flare leaves the
+	// elevons carrying +9..15 Nm of nose-up trim (cmd ~0.6-0.9); the
+	// MC branches above drop that to ~0 in one cycle, and on NG the
+	// step kicked a 2 Hz fan-only pitch limit cycle into departure
+	// (Isaac moment log, 22003, 2026-10-08). Add the captured BT
+	// command on top of the legacy MC value, decaying with tau = HT
+	// and scaled by qbar_now / qbar_at_switch (the trim is only
+	// needed while the wing still has the airflow that made it).
+	// HT = 0 never touches the output (calm baselines bit-identical).
+	const float elev_ht = _param_vt_dia_elev_ht.get();
+
+	if (elev_ht <= FLT_EPSILON || _vtol_mode != vtol_mode::MC_MODE
+	    || _land_detected->landed || fabsf(_elev_handover_hold) < 1e-3f) {
+		_elev_handover_hold = 0.f;
+
+	} else {
+		const hrt_abstime now_ho = hrt_absolute_time();
+		const float dt_ho = math::constrain((now_ho - _elev_handover_last_us) * 1e-6f, 0.f, 0.1f);
+		_elev_handover_last_us = now_ho;
+		_elev_handover_hold *= expf(-dt_ho / elev_ht);
+
+		const float cas_ho = _airspeed_validated->calibrated_airspeed_m_s;
+		const float qbar_ho = PX4_ISFINITE(cas_ho) ? 0.5f * 1.225f * cas_ho * cas_ho : 0.f;
+		const float scale_ho = math::constrain(qbar_ho / math::max(_elev_handover_qbar, 1.f), 0.f, 1.f);
+		_torque_setpoint_1->xyz[1] += _elev_handover_hold * scale_ho;
+	}
+
+	_elev_pitch_last_pub = _torque_setpoint_1->xyz[1];
 
 	// Diamond transition attitude hold, applied directly at the torque
 	// output (the PX4-native port of the T1 level-hold architecture).
@@ -988,7 +1089,12 @@ bool Tiltrotor::isFrontTransitionCompletedBase()
 
 	float speed = NAN;
 
-	if (_param_fw_use_airspd.get()
+	// A stale airspeed_validated counts as invalid: on 2026-10-08 the
+	// airspeed_selector died pre-arm and left a finite CAS (-0.27 m/s)
+	// latched, so P2 never fired and the transition timed out.
+	const bool airspeed_fresh = hrt_elapsed_time(&_airspeed_validated->timestamp) <= 1_s;
+
+	if (_param_fw_use_airspd.get() && airspeed_fresh
 	    && PX4_ISFINITE(_airspeed_validated->calibrated_airspeed_m_s)) {
 		speed = _airspeed_validated->calibrated_airspeed_m_s;
 

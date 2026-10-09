@@ -591,12 +591,29 @@ parameters:
                     fixed-wing mode instead of tracking cruise throttle. The
                     diamond wing carries only ~90 N at transition speed, so the
                     stock rotors-off FW assumption does not apply. 0 keeps the
-                    stock behavior.
+                    stock behavior. Applies to fixed-wing mode only; the
+                    transition floor is CA_DIA_TR_LF_MIN.
             type: float
             decimal: 2
             min: 0.0
             max: 0.5
             default: 0.0
+
+        CA_DIA_TR_LF_MIN:
+            description:
+                short: Diamond transition lift-fan minimum throttle
+                long: |
+                    Normalized throttle lower bound for the UNTILTABLE lift fans
+                    during both front and back transitions. Keeps louver yaw and
+                    fan-differential roll authority while the wing unloads the
+                    fans (run 33: fans wound to zero at ~13 m/s, roll loss).
+                    Independent of the fixed-wing floor CA_DIA_FW_LF_MIN.
+                    0 disables the transition floor.
+            type: float
+            decimal: 2
+            min: 0.0
+            max: 0.5
+            default: 0.15
 
         # Others
         CA_FAILURE_MODE:
