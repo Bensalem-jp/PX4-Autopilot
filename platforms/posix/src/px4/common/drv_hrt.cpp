@@ -84,10 +84,28 @@ __EXPORT uint32_t latency_counters[LATENCY_BUCKET_COUNT + 1];
 static px4_sem_t 	_hrt_lock;
 static struct work_s	_hrt_work;
 
+/* periodic entries re-armed by another thread during their callout (protected by _hrt_lock) */
+static uint32_t		hrt_dup_enter_skipped;
+
 static void hrt_latency_update();
 
 static void hrt_call_reschedule();
 static void hrt_call_invoke();
+
+/*
+ * Return true if entry is currently linked in callout_queue.
+ * Must be called with _hrt_lock held.
+ */
+static bool hrt_call_is_queued(const struct hrt_call *entry)
+{
+	for (sq_entry_t *link = sq_peek(&callout_queue); link != nullptr; link = sq_next(link)) {
+		if (link == &entry->link) {
+			return true;
+		}
+	}
+
+	return false;
+}
 
 static void hrt_lock()
 {
@@ -451,6 +469,29 @@ hrt_call_invoke()
 
 		/* if the callout has a non-zero period, it has to be re-entered */
 		if (call->period != 0) {
+			/* The callout ran without _hrt_lock, so another thread may have
+			 * re-armed this periodic entry meanwhile (e.g. MagBiasEstimator::Run()
+			 * calls ScheduleOnInterval() on the arming transition):
+			 * hrt_call_internal() saw deadline == 0 and already linked it.
+			 * Entering it again would make sq_addafter() splice the singly
+			 * linked callout_queue (dropping every entry between the two
+			 * positions for good, or creating a self-loop). The re-arming
+			 * thread's schedule wins. One-shot entries (period == 0) re-armed
+			 * by their Run() via ScheduleDelayed() are the normal case and were
+			 * never re-entered here, so they are not affected.
+			 */
+			if (hrt_call_is_queued(call)) {
+				hrt_dup_enter_skipped++;
+
+				// rate-limit: log at counts 1, 2, 4, 8, ...
+				if ((hrt_dup_enter_skipped & (hrt_dup_enter_skipped - 1)) == 0) {
+					PX4_WARN("hrt: periodic call %p re-armed during callout, duplicate enter skipped (count %" PRIu32 ")",
+						 (void *)call, hrt_dup_enter_skipped);
+				}
+
+				continue;
+			}
+
 			// re-check call->deadline to allow for
 			// callouts to re-schedule themselves
 			// using hrt_call_delay()
