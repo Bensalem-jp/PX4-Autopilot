@@ -227,7 +227,7 @@ void TECSControl::initialize(const Setpoint &setpoint, const Input &input, const
 	const SpecificEnergyWeighting weight{_updateSpeedAltitudeWeights(param, flag)};
 	ControlValues seb_rate{_calcPitchControlSebRate(weight, specific_energy_rate)};
 
-	_pitch_setpoint = _calcPitchControlOutput(input, seb_rate, param);
+	_pitch_setpoint = _calcPitchControlOutput(input, seb_rate, specific_energy_rate, weight, param);
 
 	_ste_rate_estimate_filter.reset(specific_energy_rate.spe_rate.estimate + specific_energy_rate.ske_rate.estimate);
 
@@ -405,7 +405,7 @@ void TECSControl::_calcPitchControl(float dt, const Input &input, const Specific
 	ControlValues seb_rate{_calcPitchControlSebRate(weight, specific_energy_rates)};
 
 	_calcPitchControlUpdate(dt, input, seb_rate, param);
-	const float pitch_setpoint{_calcPitchControlOutput(input, seb_rate, param)};
+	const float pitch_setpoint{_calcPitchControlOutput(input, seb_rate, specific_energy_rates, weight, param)};
 
 	// Comply with the specified vertical acceleration limit by applying a pitch rate limit
 	// NOTE: at zero airspeed, the pitch increment is unbounded
@@ -495,12 +495,16 @@ float TECSControl::_climbAngleToSebRate(const Input &input, const Param &param)
 	return _airspeedForClimbAngle(input, param) * CONSTANTS_ONE_G;
 }
 
-float TECSControl::_calcPitchControlOutput(const Input &input, const ControlValues &seb_rate, const Param &param) const
+float TECSControl::_calcPitchControlOutput(const Input &input, const ControlValues &seb_rate,
+		const SpecificEnergyRates &specific_energy_rates, const SpecificEnergyWeighting &weight, const Param &param) const
 {
-	// Calculate a specific energy correction that doesn't include the integrator contribution
-	float SEB_rate_correction = _getControlError(seb_rate) * param.pitch_damping_gain +
-				    param.seb_rate_ff *
-				    seb_rate.setpoint;
+	// Energy correction (excl. integrator) as an explicit feedforward + feedback. The feedforward is the weighted
+	// potential energy rate demand (the demanded climb angle). The kinetic energy part of the energy-balance rate
+	// demand is the airspeed error through the airspeed loop gain: a proportional feedback term, labelled as such.
+	const float feedforward = param.seb_rate_ff * weight.spe_weighting * specific_energy_rates.spe_rate.setpoint;
+	const float feedback = _getControlError(seb_rate) * param.pitch_damping_gain
+			       - param.seb_rate_ff * weight.ske_weighting * specific_energy_rates.ske_rate.setpoint;
+	float SEB_rate_correction = feedforward + feedback;
 
 	// Convert the specific energy balance rate correction to a climb angle and add the level-flight pitch, the angle
 	// of attack at zero climb angle, to get the absolute pitch setpoint. This calculation assumes:
