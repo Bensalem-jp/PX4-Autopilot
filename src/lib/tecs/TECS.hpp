@@ -551,8 +551,9 @@ private:
 	 *
 	 * @param input is the current input measurement of the UAS.
 	 * @param seb_rate is the specific energy balance rate in [m²/s³].
-	 * @param specific_energy_rates are the specific energy rate setpoints and estimates in [m²/s³]. The weighted
-	 *        potential energy rate setpoint is the feedforward (demanded climb angle).
+	 * @param specific_energy_rates are the specific energy rate setpoints and estimates in [m²/s³]. The potential
+	 *        energy rate setpoint is the feedforward (demanded climb angle), unweighted: the speed/height weighting
+	 *        prioritises errors and stays in the feedback.
 	 * @param weight is the speed/height weighting. It scales the kinetic energy rate setpoint, which is the airspeed
 	 *        error through the airspeed loop gain and acts as feedback.
 	 * @param param is the control parameters.
