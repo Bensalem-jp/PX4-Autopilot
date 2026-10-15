@@ -138,16 +138,23 @@ param set CA_SV_CS0_TYPE 5
 # entries die with an identical sub-second roll snap the instant the
 # elevons unlock -- consistent with an inverted roll-torque sign
 # (positive feedback), not with random garbage setpoints.
-param set CA_SV_CS0_TRQ_R 0.5
+# 2026-10-09 ng-v3 retune: the plant's elevon authority was ~3.2x too
+# strong (collective Cm_de summed per side, 1.0 treated as 1 rad vs the
+# 25 deg throw). With the corrected plant the diamond-era effectiveness
+# left the FW roll loop under-gained (+-40 deg weave onto the NPFG
+# period). Rescaled by the authority ratio instead of touching FW_*:
+# TRQ_R +-0.15 (stable band verified +-0.109..0.30, 11/11 phase sweep),
+# TRQ_P -0.155. See BWB_new .agents/docs/plans/ng_v3_gain_retune_plan.
+param set CA_SV_CS0_TRQ_R 0.15
 # Elevon pitch sign: NEGATIVE. The elevon surfaces sit AFT of the CG
 # (TE x ~ 0.85-1.0 vs CG 0.533): TE-down = nose-DOWN, and the diamond
 # plant6dof json carries Cm_de = -0.235/rad (the .stab magnitude; the
 # earlier '+0.235' bootstrap note dropped the sign). GM run 13's env
 # moment log confirmed: positive collective -> negative elevon_My.
-param set CA_SV_CS0_TRQ_P -0.5
+param set CA_SV_CS0_TRQ_P -0.155
 param set CA_SV_CS1_TYPE 6
-param set CA_SV_CS1_TRQ_R -0.5
-param set CA_SV_CS1_TRQ_P -0.5
+param set CA_SV_CS1_TRQ_R -0.15
+param set CA_SV_CS1_TRQ_P -0.155
 
 # --- Diamond louver yaw vectoring (hover-validated) ---
 param set CA_DIA_LVR_K 0.015
@@ -360,7 +367,10 @@ param set FW_P_RMAX_NEG 12.0
 param set FW_R_RMAX 12.0
 # Bank limit: keep NPFG intercept banks 15 deg under the runner's 45 deg
 # roll shield (MC-tuned); 30 deg is ample for 900 m mission legs.
-param set FW_R_LIM 30.0
+# ng-v3: CL_de trim lift loss leaves no bank margin at 22 m/s (30 deg
+# needs CL 0.62 vs cap 0.633); 20 deg keeps the 4-lap turns clean
+# (alt band 1.4 m, 0.74 kW vs 1.06 kW stalling at 30 deg).
+param set FW_R_LIM 20.0
 # FW roll rate loop: feedback-dominant with LOW FF. The sim aero has
 # no Cl_p roll damping, so the stock FF=0.5 settles at p ~ 11x the
 # setpoint (GM run 9b). FF 0.05 keeps the loop feedback-led. P stays
@@ -405,11 +415,13 @@ param set COM_ARM_IMU_GYR 0.25
 param set MC_ROLL_P 1.2
 param set MC_PITCH_P 1.2
 param set MC_YAW_P 0.9
-param set MC_ROLLRATE_K 0.8
+# ng-v3 ledger inertia (Ixx x3.4, Iyy x1.17 vs the 12.15 kg tensor):
+# rate gains rescaled from att12d 0.8 / 1.2.
+param set MC_ROLLRATE_K 2.7
 param set MC_ROLLRATE_P 0.15
 param set MC_ROLLRATE_I 0.041
 param set MC_ROLLRATE_D 0.008
-param set MC_PITCHRATE_K 1.2
+param set MC_PITCHRATE_K 1.4
 param set MC_PITCHRATE_P 0.15
 param set MC_PITCHRATE_I 0.041
 param set MC_PITCHRATE_D 0.008
@@ -473,6 +485,15 @@ param set MIS_YAW_ERR 12
 param set MPC_XY_CRUISE 5
 # (wind 1.5 — also the calm back-transition SPEED exit, see VT_B_TRANS_DUR)
 param set VT_DIA_DST_P 0.0
+# 2026-10-11: the post-BT DST latch (armed at BT exit, cleared only at
+# the next front transition) vetoed the MC nose-up brake whenever CAS
+# exceeded 5.7 m/s during the upwind reposition; every 5 m/s crosswind
+# "landing" touched down 665-720 m away at ~15 m/s (650-830 Wh).
+# DST_TO releases the latch 10 s after hand-over; DST_BV refuses to cap
+# a nose-up brake. Crosswind landing 302 Wh, touchdown 0.6 m/s; calm
+# 1-lap/4-lap unchanged. Defaults 0 keep 22002 as before.
+param set VT_DIA_DST_TO 10.0
+param set VT_DIA_DST_BV 1.0
 # (wind 3.0 — descent wing-unload pitch bias, wind-only)
 param set VT_DIA_ROT_P 0.0
 # (wind 3.0 — explicit wind-takeoff rotation, wind-only)

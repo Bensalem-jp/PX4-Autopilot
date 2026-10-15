@@ -115,6 +115,13 @@ private:
 	// The land detector is NOT a ground oracle at high thrust: its
 	// low-thrust test de-asserts landed during a pinned takeoff.
 	float distToGround() const;
+	// VT_DIA_DST_TO: true once the post-BT unload latch may be released.
+	bool postBtLatchExpired(float qbar, hrt_abstime now);
+	// VT_DIA_DST_BV: true when a nose-up MC demand is braking a forward
+	// groundspeed excess (the unload cap must not override it).
+	bool dstBrakeVeto(float pitch_demand) const;
+	// Rate-limited PX4_INFO for descent-unload release / veto events.
+	void logDstEvent(hrt_abstime now, const char *event, float qbar, float pitch_demand);
 
 	uORB::Subscription _angular_velocity_sub{ORB_ID(vehicle_angular_velocity)};
 	hrt_abstime _pitch_quiet_since{0};
@@ -128,6 +135,9 @@ private:
 	// Set when the back transition completes; the wind unload runs
 	// from the first post-BT MC cycle (racing the MPC thrust cut).
 	bool _post_bt_mc{false};
+	hrt_abstime _post_bt_exit_us{0};	// BT->MC switch time (VT_DIA_DST_TO)
+	hrt_abstime _dst_quiet_since{0};	// qbar below the gate since (0 = not)
+	hrt_abstime _dst_log_ts{0};		// DST diagnostic rate limiter
 	float _bt2mc_pitch_state{NAN};	// rad; NAN = handover slew inactive
 	hrt_abstime _bt2mc_last_us{0};
 	// Rate limiter for the BT exit-gate diagnostic print (1 Hz).
@@ -177,6 +187,8 @@ private:
 					(ParamFloat<px4::params::VT_DIA_BT2MC_R>) _param_vt_dia_bt2mc_r,
 					(ParamFloat<px4::params::VT_DIA_BT_TPR>) _param_vt_dia_bt_tpr,
 					(ParamFloat<px4::params::VT_DIA_DST_P>) _param_vt_dia_dst_p,
+					(ParamFloat<px4::params::VT_DIA_DST_TO>) _param_vt_dia_dst_to,
+					(ParamFloat<px4::params::VT_DIA_DST_BV>) _param_vt_dia_dst_bv,
 					(ParamFloat<px4::params::VT_DIA_PQ_ANG>) _param_vt_dia_pq_ang,
 					(ParamFloat<px4::params::VT_DIA_PQ_RATE>) _param_vt_dia_pq_rate,
 					(ParamFloat<px4::params::VT_DIA_PQ_T>) _param_vt_dia_pq_t,

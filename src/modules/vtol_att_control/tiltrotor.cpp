@@ -68,6 +68,15 @@ using namespace matrix;
 // MPC_LAND_ALT1 pinned a 0.2 Hz balloon limit cycle on the 2 m
 // boundary (ladders 8/9).
 #define DIAMOND_UNLOAD_FLOOR_M 0.3f
+// Descent-unload airflow gate (Pa): the bias only runs above it.
+#define DIAMOND_DST_QBAR_GATE_PA 20.f
+// Descent-unload bias slew rate (deg/s), shared by engage and release.
+#define DIAMOND_DST_SLEW_DEG_S 2.0f
+// Post-BT latch early release: CAS must stay below the gate this long
+// (s) after the BT->MC hand-over has converged (VT_DIA_DST_TO > 0).
+#define DIAMOND_DST_QUIET_S 2.0f
+// Rate limit (us) for the descent-unload release/veto diagnostic.
+#define DIAMOND_DST_LOG_INTERVAL_US 2000000
 // Flare-taper floor ratio: the hold never drops below this fraction of
 // the flare ceiling while tapering (VT_DIA_BT_TPR), keeping enough
 // nose-up to finish the deceleration without a backward-sail dwell.
@@ -243,6 +252,8 @@ void Tiltrotor::update_vtol_state()
 				// needs 7+; the authority death frees the static
 				// instability, nose-up 25 deg runaway).
 				_post_bt_mc = true;
+				_post_bt_exit_us = hrt_absolute_time();
+				_dst_quiet_since = 0;
 				// BT->MC handover slew anchor: the physical pitch at
 				// the switch instant (bumpless transfer origin).
 				_bt2mc_pitch_state = Eulerf(Quatf(_v_att->q)).theta();
@@ -420,8 +431,39 @@ void Tiltrotor::update_mc_state()
 		// 2 m were unreachable for 100+ s at lf 1.00). The bias on
 		// the gear is harmless: LNDMC + disarm cuts it, and the
 		// land detector's 5 s trigger outlasts the slew release.
-		_dst_mode_active = ((descending || _post_bt_mc) && qbar_dst > 20.f
+		const hrt_abstime now_dst = hrt_absolute_time();
+		const Eulerf euler_dst(Quatf(_v_att_sp->q_d));
+		const float pitch_demand = euler_dst.theta();
+		const bool latch_expired = postBtLatchExpired(qbar_dst, now_dst);
+
+		_dst_mode_active = ((descending || _post_bt_mc) && qbar_dst > DIAMOND_DST_QBAR_GATE_PA
 				    && distToGround() > DIAMOND_UNLOAD_FLOOR_M);
+
+		// Post-BT latch release (VT_DIA_DST_TO). The latch only exists
+		// to race the MPC thrust cut right after the BT; left armed it
+		// re-engages on every later upwind reposition and the cap
+		// forbids the MC nose-up brake (13.7 m/s runaway, 2026-10-11
+		// crosswind ulogs). Clear it immediately when the cap is not
+		// binding (no SP step); otherwise slew the cap up to the
+		// demand first and clear on the next non-binding cycle.
+		bool latch_releasing = false;
+
+		if (_post_bt_mc && latch_expired) {
+			if (!_dst_mode_active || descending || pitch_demand <= _dst_bias_state) {
+				_post_bt_mc = false;
+				_dst_mode_active = _dst_mode_active && descending;
+				logDstEvent(now_dst, "post-BT latch released", qbar_dst, pitch_demand);
+
+			} else {
+				latch_releasing = true;
+			}
+		}
+
+		const bool brake_veto = _dst_mode_active && dstBrakeVeto(pitch_demand);
+
+		if (brake_veto) {
+			logDstEvent(now_dst, "nose-up brake veto", qbar_dst, pitch_demand);
+		}
 
 		if (_dst_mode_active) {
 			// Small target + slew. The ulogs bracketed it: actual
@@ -441,11 +483,16 @@ void Tiltrotor::update_mc_state()
 			// original 0.5 deg/s lost the race against the LAND
 			// thrust cut (lf 0.64 -> 0.00 in 4.5 s while the bias
 			// was still shallowing through -0.4 deg).
-			const hrt_abstime now_dst = hrt_absolute_time();
 			const float dt_dst = math::constrain(
 					(now_dst - _dst_bias_last_us) * 1e-6f, 0.f, 0.1f);
 			_dst_bias_last_us = now_dst;
-			const float slew_step = math::radians(2.0f) * dt_dst;
+			const float slew_step = math::radians(DIAMOND_DST_SLEW_DEG_S) * dt_dst;
+			// Release (brake veto or expiring post-BT latch): slew the
+			// cap UP toward the MC demand instead of stepping it away,
+			// so the SP never jumps (step-SP-forbidden, T10). Once the
+			// cap reaches the demand it no longer binds.
+			const float slew_goal = (brake_veto || latch_releasing)
+						? math::max(pitch_target, pitch_demand) : pitch_target;
 
 			// Two-way slew. The one-way form (max(state-step,
 			// target)) was a ratchet: transient qbar dips deepen
@@ -453,15 +500,14 @@ void Tiltrotor::update_mc_state()
 			// back — the hold equilibrium walked into the upper
 			// collective rail (lf 0.75->0.96 over 35 s at 9.4 m)
 			// and the authority death departed the vehicle.
-			if (_dst_bias_state > pitch_target) {
-				_dst_bias_state = math::max(_dst_bias_state - slew_step, pitch_target);
+			if (_dst_bias_state > slew_goal) {
+				_dst_bias_state = math::max(_dst_bias_state - slew_step, slew_goal);
 
 			} else {
-				_dst_bias_state = math::min(_dst_bias_state + slew_step, pitch_target);
+				_dst_bias_state = math::min(_dst_bias_state + slew_step, slew_goal);
 			}
-			const Eulerf euler_dst(Quatf(_v_att_sp->q_d));
 
-			if (euler_dst.theta() > _dst_bias_state) {
+			if (pitch_demand > _dst_bias_state) {
 				const Quatf q_dst(Eulerf(euler_dst.phi(), _dst_bias_state, euler_dst.psi()));
 				q_dst.copyTo(_v_att_sp->q_d);
 				_v_att_sp->pitch_body = _dst_bias_state;
@@ -511,6 +557,76 @@ void Tiltrotor::update_mc_state()
 			_v_att_sp->pitch_body = _bt2mc_pitch_state;
 		}
 	}
+}
+
+bool Tiltrotor::postBtLatchExpired(float qbar, hrt_abstime now)
+{
+	const float timeout_s = _param_vt_dia_dst_to.get();
+
+	if (timeout_s <= FLT_EPSILON || !_post_bt_mc) {
+		_dst_quiet_since = 0;
+		return false;	// 0 = legacy latch (held until the next front transition)
+	}
+
+	if (now - _post_bt_exit_us > (hrt_abstime)(timeout_s * 1e6f)) {
+		return true;
+	}
+
+	// Early release: the BT->MC hand-over has converged (pitch slew and
+	// elevon hold both released) and the airflow has stayed below the
+	// gate for DIAMOND_DST_QUIET_S.
+	const bool pitch_slew_done = _param_vt_dia_bt2mc_r.get() <= FLT_EPSILON
+				     || !PX4_ISFINITE(_bt2mc_pitch_state);
+	const bool elev_hold_done = fabsf(_elev_handover_hold) < 1e-3f;
+
+	if (!pitch_slew_done || !elev_hold_done || qbar > DIAMOND_DST_QBAR_GATE_PA) {
+		_dst_quiet_since = 0;
+		return false;
+	}
+
+	if (_dst_quiet_since == 0) {
+		_dst_quiet_since = now;
+	}
+
+	return now - _dst_quiet_since > (hrt_abstime)(DIAMOND_DST_QUIET_S * 1e6f);
+}
+
+bool Tiltrotor::dstBrakeVeto(float pitch_demand) const
+{
+	const float threshold = _param_vt_dia_dst_bv.get();
+
+	if (threshold <= FLT_EPSILON || pitch_demand <= 0.f) {
+		return false;	// 0 = legacy: the cap may override any demand
+	}
+
+	if (!PX4_ISFINITE(_local_pos->vx) || !PX4_ISFINITE(_local_pos->vy)) {
+		return false;
+	}
+
+	// Body-forward groundspeed and its setpoint (NaN setpoint = hold).
+	const float yaw = Eulerf(Quatf(_v_att->q)).psi();
+	const float cos_yaw = cosf(yaw);
+	const float sin_yaw = sinf(yaw);
+	const float v_fwd = cos_yaw * _local_pos->vx + sin_yaw * _local_pos->vy;
+	const float vx_sp = PX4_ISFINITE(_local_pos_sp->vx) ? _local_pos_sp->vx : 0.f;
+	const float vy_sp = PX4_ISFINITE(_local_pos_sp->vy) ? _local_pos_sp->vy : 0.f;
+	const float v_fwd_sp = cos_yaw * vx_sp + sin_yaw * vy_sp;
+
+	// A nose-up demand while moving forward faster than demanded is
+	// the MC brake: the dive cap must not override it.
+	return (v_fwd - v_fwd_sp) > threshold;
+}
+
+void Tiltrotor::logDstEvent(hrt_abstime now, const char *event, float qbar, float pitch_demand)
+{
+	if (now - _dst_log_ts < DIAMOND_DST_LOG_INTERVAL_US) {
+		return;
+	}
+
+	_dst_log_ts = now;
+	PX4_INFO("DST %s: qbar=%.1f Pa demand=%.2f deg cap=%.2f deg",
+		 event, (double)qbar, (double)math::degrees(pitch_demand),
+		 (double)math::degrees(_dst_bias_state));
 }
 
 void Tiltrotor::update_fw_state()

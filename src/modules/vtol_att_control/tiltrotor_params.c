@@ -310,6 +310,42 @@ PARAM_DEFINE_FLOAT(VT_DIA_BT2MC_R, 0.0f);
 PARAM_DEFINE_FLOAT(VT_DIA_DST_P, 0.0f);
 
 /**
+ * Diamond descent-unload post-BT latch timeout
+ *
+ * The descent wing-unload bias (VT_DIA_DST_P) is armed at the
+ * back-transition exit to race the MPC thrust cut. With this > 0 that
+ * post-BT arming is released after this many seconds, or earlier once
+ * the BT->MC hand-over has converged and the airflow has stayed below
+ * the 20 Pa gate for 2 s. The LAND / climb-rate descent clause is kept.
+ * A cap that still binds is slewed up to the MC demand before release.
+ * 0 = legacy latch (held until the next front transition).
+ *
+ * @unit s
+ * @min 0.0
+ * @max 120.0
+ * @decimal 1
+ * @group VTOL Attitude Control
+ */
+PARAM_DEFINE_FLOAT(VT_DIA_DST_TO, 0.0f);
+
+/**
+ * Diamond descent-unload brake veto threshold
+ *
+ * While the MC pitch demand is nose-up and the body-forward groundspeed
+ * exceeds its setpoint by more than this value, the descent wing-unload
+ * cap (VT_DIA_DST_P) is slewed up to the demand instead of overriding
+ * the brake with a dive. 0 disables (legacy: the cap overrides any
+ * demand).
+ *
+ * @unit m/s
+ * @min 0.0
+ * @max 10.0
+ * @decimal 1
+ * @group VTOL Attitude Control
+ */
+PARAM_DEFINE_FLOAT(VT_DIA_DST_BV, 0.0f);
+
+/**
  * Diamond back-transition flare taper knee speed
  *
  * Below this body-forward speed the back-transition flare hold is
