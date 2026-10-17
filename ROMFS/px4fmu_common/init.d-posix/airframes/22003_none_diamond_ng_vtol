@@ -413,7 +413,13 @@ param set COM_ARM_IMU_GYR 0.25
 # Yaw attitude P lowered 1.5 -> 0.9: observed closed-loop zeta ~0.26
 # (G5 overshoot 43%). Lower outer-loop bandwidth raises damping.
 param set MC_ROLL_P 1.2
-param set MC_PITCH_P 1.2
+# 2026-10-16 wind-landing campaign: at airflow reversal during a windy
+# descent the 1.2/1.4 pitch loop left a -27 deg/s rate error at ~0 torque
+# (8 Pa aero moment on Iyy 0.715 = 65 deg/s^2) -> 14-16 deg overshoot and
+# a 5-7 m/s touchdown. P 1.8 + rate K 2.8 (K alone insufficient) -> 0.02-0.1
+# m/s in 5-8 m/s head/cross wind and sigma 3 turbulence. Margin on ng-v3:
+# rate K x0.5-x4 PASS, x0.25 FAIL (forward transition).
+param set MC_PITCH_P 1.8
 param set MC_YAW_P 0.9
 # ng-v3 ledger inertia (Ixx x3.4, Iyy x1.17 vs the 12.15 kg tensor):
 # rate gains rescaled from att12d 0.8 / 1.2.
@@ -421,7 +427,7 @@ param set MC_ROLLRATE_K 2.7
 param set MC_ROLLRATE_P 0.15
 param set MC_ROLLRATE_I 0.041
 param set MC_ROLLRATE_D 0.008
-param set MC_PITCHRATE_K 1.4
+param set MC_PITCHRATE_K 2.8
 param set MC_PITCHRATE_P 0.15
 param set MC_PITCHRATE_I 0.041
 param set MC_PITCHRATE_D 0.008

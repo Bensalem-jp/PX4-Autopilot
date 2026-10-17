@@ -70,8 +70,23 @@ using namespace matrix;
 #define DIAMOND_UNLOAD_FLOOR_M 0.3f
 // Descent-unload airflow gate (Pa): the bias only runs above it.
 #define DIAMOND_DST_QBAR_GATE_PA 20.f
-// Descent-unload bias slew rate (deg/s), shared by engage and release.
+// Descent-only ENTRY gate (Pa, hysteresis). A 5 m/s wind hover sits
+// at CAS 5-6.4 m/s = 15-25 Pa, i.e. ON the 20 Pa gate: every crossing
+// re-armed the dive cap, the brake veto then slewed it back at
+// 2 deg/s, and the hover limit-cycled at +-2 m/s through the descent
+// (2026-10-16 wind-n -5 touchdown 5.65 m/s, crosswind 1.26-1.50 m/s).
+// Enter the descent unload at 35 Pa (CAS 7.6 m/s), leave it at 20 Pa.
+// The post-BT latch keeps the 20 Pa entry (it races the thrust cut).
+#define DIAMOND_DST_QBAR_ENTER_PA 35.f
+// Descent-unload bias slew rate (deg/s) for engage and plain release.
 #define DIAMOND_DST_SLEW_DEG_S 2.0f
+// Brake-veto release slew (deg/s): a nose-up brake demand must win
+// within ~1 s, not the 5-6 s the 2 deg/s engage slew took from the
+// -3 deg cap to the +10 deg demand (same 2026-10-16 ulogs).
+#define DIAMOND_DST_BRAKE_SLEW_DEG_S 10.0f
+// After a brake veto the cap stays non-binding this long (s) so the
+// dive target does not re-engage against the decelerating vehicle.
+#define DIAMOND_DST_VETO_HOLD_S 3.0f
 // Post-BT latch early release: CAS must stay below the gate this long
 // (s) after the BT->MC hand-over has converged (VT_DIA_DST_TO > 0).
 #define DIAMOND_DST_QUIET_S 2.0f
@@ -436,7 +451,10 @@ void Tiltrotor::update_mc_state()
 		const float pitch_demand = euler_dst.theta();
 		const bool latch_expired = postBtLatchExpired(qbar_dst, now_dst);
 
-		_dst_mode_active = ((descending || _post_bt_mc) && qbar_dst > DIAMOND_DST_QBAR_GATE_PA
+		// Hysteresis: descent-only entry at ENTER, stay until GATE.
+		const float qbar_gate = (_dst_mode_active || _post_bt_mc)
+					? DIAMOND_DST_QBAR_GATE_PA : DIAMOND_DST_QBAR_ENTER_PA;
+		_dst_mode_active = ((descending || _post_bt_mc) && qbar_dst > qbar_gate
 				    && distToGround() > DIAMOND_UNLOAD_FLOOR_M);
 
 		// Post-BT latch release (VT_DIA_DST_TO). The latch only exists
@@ -463,7 +481,10 @@ void Tiltrotor::update_mc_state()
 
 		if (brake_veto) {
 			logDstEvent(now_dst, "nose-up brake veto", qbar_dst, pitch_demand);
+			_dst_veto_until_us = now_dst + (hrt_abstime)(DIAMOND_DST_VETO_HOLD_S * 1e6f);
 		}
+
+		const bool veto_hold = now_dst < _dst_veto_until_us;
 
 		if (_dst_mode_active) {
 			// Small target + slew. The ulogs bracketed it: actual
@@ -486,12 +507,17 @@ void Tiltrotor::update_mc_state()
 			const float dt_dst = math::constrain(
 					(now_dst - _dst_bias_last_us) * 1e-6f, 0.f, 0.1f);
 			_dst_bias_last_us = now_dst;
-			const float slew_step = math::radians(DIAMOND_DST_SLEW_DEG_S) * dt_dst;
-			// Release (brake veto or expiring post-BT latch): slew the
-			// cap UP toward the MC demand instead of stepping it away,
-			// so the SP never jumps (step-SP-forbidden, T10). Once the
-			// cap reaches the demand it no longer binds.
-			const float slew_goal = (brake_veto || latch_releasing)
+			// Release (brake veto, its hold, or expiring post-BT
+			// latch): slew the cap UP toward the MC demand instead of
+			// stepping it away, so the SP never jumps (step-SP-
+			// forbidden, T10). Once the cap reaches the demand it no
+			// longer binds. The brake release runs at its own, faster
+			// rate; engage and the latch release keep the 2 deg/s.
+			const bool releasing = brake_veto || veto_hold || latch_releasing;
+			const float slew_rate_deg_s = (brake_veto || veto_hold)
+						      ? DIAMOND_DST_BRAKE_SLEW_DEG_S : DIAMOND_DST_SLEW_DEG_S;
+			const float slew_step = math::radians(slew_rate_deg_s) * dt_dst;
+			const float slew_goal = releasing
 						? math::max(pitch_target, pitch_demand) : pitch_target;
 
 			// Two-way slew. The one-way form (max(state-step,

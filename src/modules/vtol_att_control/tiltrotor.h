@@ -138,6 +138,7 @@ private:
 	hrt_abstime _post_bt_exit_us{0};	// BT->MC switch time (VT_DIA_DST_TO)
 	hrt_abstime _dst_quiet_since{0};	// qbar below the gate since (0 = not)
 	hrt_abstime _dst_log_ts{0};		// DST diagnostic rate limiter
+	hrt_abstime _dst_veto_until_us{0};	// brake-veto hold: cap stays non-binding until
 	float _bt2mc_pitch_state{NAN};	// rad; NAN = handover slew inactive
 	hrt_abstime _bt2mc_last_us{0};
 	// Rate limiter for the BT exit-gate diagnostic print (1 Hz).
