@@ -90,6 +90,13 @@ using namespace matrix;
 // Post-BT latch early release: CAS must stay below the gate this long
 // (s) after the BT->MC hand-over has converged (VT_DIA_DST_TO > 0).
 #define DIAMOND_DST_QUIET_S 2.0f
+// BT->MC hand-over slew guards (VT_DIA_BT2MC_R redesign, see e25c7c9b89).
+// Hard timeout: the slew must never shadow a moving MC demand into later
+// phases (the 35 deg/s regression). Span cap: a gap wider than this is the
+// large flare-hold release whose stock step is protective (arrests the
+// backward slide); the slew only smooths small hand-over steps.
+#define DIAMOND_BT2MC_TIMEOUT_S 1.0f
+#define DIAMOND_BT2MC_SPAN_MAX_DEG 6.0f
 // Rate limit (us) for the descent-unload release/veto diagnostic.
 #define DIAMOND_DST_LOG_INTERVAL_US 2000000
 // Flare-taper floor ratio: the hold never drops below this fraction of
@@ -269,10 +276,20 @@ void Tiltrotor::update_vtol_state()
 				_post_bt_mc = true;
 				_post_bt_exit_us = hrt_absolute_time();
 				_dst_quiet_since = 0;
-				// BT->MC handover slew anchor: the physical pitch at
-				// the switch instant (bumpless transfer origin).
-				_bt2mc_pitch_state = Eulerf(Quatf(_v_att->q)).theta();
+				// BT->MC handover slew anchor: the pitch setpoint
+				// LAST PUBLISHED in BT. _v_att_sp still holds it here
+				// (update_mc_state() overwrites it later this cycle).
+				// Anchoring at the physical attitude instead put the
+				// first MC sample off the BT setpoint (the vehicle lags
+				// it), i.e. a setpoint step on the switch sample.
+				const float bt_pitch_sp_last = Eulerf(Quatf(_v_att_sp->q_d)).theta();
+				_bt2mc_pitch_state = PX4_ISFINITE(bt_pitch_sp_last)
+						     ? bt_pitch_sp_last : Eulerf(Quatf(_v_att->q)).theta();
+				// Same timestamp as the first update_mc_state() call
+				// this cycle -> dt ~ 0 there, so the switch sample
+				// publishes the anchor and the slew runs from it.
 				_bt2mc_last_us = hrt_absolute_time();
+				_bt2mc_start_us = _bt2mc_last_us;
 				// Elevon hand-over anchor (VT_DIA_ELEV_HT): the
 				// last BT elevon pitch command and the qbar it was
 				// flown at, released by decay in fill_actuator_outputs().
@@ -559,10 +576,11 @@ void Tiltrotor::update_mc_state()
 	// attitude loop chases the 14-19 deg step with q swinging past
 	// +-1.5 rad/s and the mission shield trips (reason=3 -- the
 	// BT-handover transient class, r8/l3 forensics). Anchor the
-	// published pitch SP at the captured handover attitude and slew
+	// published pitch SP at the last BT-published pitch SP and slew
 	// it toward the MC demand at VT_DIA_BT2MC_R deg/s; release once
-	// converged. Same step-SP-forbidden principle as the DST slew
-	// above (T10). Runs LAST so it slews toward the final demand
+	// converged, on the timeout, or past the span cap
+	// (DIAMOND_BT2MC_*). Same step-SP-forbidden principle as the DST
+	// slew above (T10). Runs LAST so it slews toward the final demand
 	// (including any ROT/DST shaping). 0 disables (stock step).
 	if (_param_vt_dia_bt2mc_r.get() > FLT_EPSILON && PX4_ISFINITE(_bt2mc_pitch_state)) {
 		const hrt_abstime now_b2m = hrt_absolute_time();
@@ -573,8 +591,11 @@ void Tiltrotor::update_mc_state()
 		const float demand = euler_b2m.theta();
 		const float step = math::radians(_param_vt_dia_bt2mc_r.get()) * dt_b2m;
 
-		if (fabsf(demand - _bt2mc_pitch_state) <= step) {
-			_bt2mc_pitch_state = NAN;	// converged -- release to stock
+		const bool timed_out = now_b2m - _bt2mc_start_us > (hrt_abstime)(DIAMOND_BT2MC_TIMEOUT_S * 1e6f);
+		const bool span_exceeded = fabsf(demand - _bt2mc_pitch_state) > math::radians(DIAMOND_BT2MC_SPAN_MAX_DEG);
+
+		if (fabsf(demand - _bt2mc_pitch_state) <= step || timed_out || span_exceeded) {
+			_bt2mc_pitch_state = NAN;	// converged / guard tripped -- release to stock
 
 		} else {
 			_bt2mc_pitch_state += (demand > _bt2mc_pitch_state) ? step : -step;

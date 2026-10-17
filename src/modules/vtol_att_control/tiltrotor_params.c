@@ -281,9 +281,11 @@ PARAM_DEFINE_FLOAT(VT_DIA_P1T_FLR, 0.0f);
  * one cycle; at the near-zero qbar of a calm BT exit the attitude
  * loop chases the 14-19 deg step with q swinging past +-1.5 rad/s
  * (the BT-handover transient class). Anchor the published pitch SP
- * at the captured handover attitude and slew it toward the MC demand
- * at this rate; release on convergence. Same step-SP-forbidden
- * principle as the descent-unload slew (T10). 0 disables.
+ * at the last BT-published pitch SP and slew it toward the MC demand
+ * at this rate; release on convergence, after a 1 s timeout, or when
+ * the gap exceeds 6 deg (large flare releases keep the stock step).
+ * Same step-SP-forbidden principle as the descent-unload slew (T10).
+ * 0 disables.
  *
  * @unit deg/s
  * @min 0.0
