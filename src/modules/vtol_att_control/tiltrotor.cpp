@@ -514,15 +514,15 @@ void Tiltrotor::update_mc_state()
 			// (target -20 N NET, not -20 N relative to a lift the
 			// formula pretended was zero). 226 Pa -> -1.6 deg.
 			const float pitch_target = -math::min(
-					math::radians(_param_vt_dia_dst_p.get()),
-					(DIAMOND_UNLOAD_TARGET_N / (qbar_dst * DIAMOND_SREF_M2)
-					 + DIAMOND_CL0) / DIAMOND_CLA_RAD);
+							   math::radians(_param_vt_dia_dst_p.get()),
+							   (DIAMOND_UNLOAD_TARGET_N / (qbar_dst * DIAMOND_SREF_M2)
+							    + DIAMOND_CL0) / DIAMOND_CLA_RAD);
 			// 2 deg/s slew from level; reset when inactive. The
 			// original 0.5 deg/s lost the race against the LAND
 			// thrust cut (lf 0.64 -> 0.00 in 4.5 s while the bias
 			// was still shallowing through -0.4 deg).
 			const float dt_dst = math::constrain(
-					(now_dst - _dst_bias_last_us) * 1e-6f, 0.f, 0.1f);
+						     (now_dst - _dst_bias_last_us) * 1e-6f, 0.f, 0.1f);
 			_dst_bias_last_us = now_dst;
 			// Release (brake veto, its hold, or expiring post-BT
 			// latch): slew the cap UP toward the MC demand instead of
@@ -1074,6 +1074,7 @@ void Tiltrotor::fill_actuator_outputs()
 			// authority at the validated level. 0 disables the cap.
 			const float q_cap = _param_vt_dia_elev_qcap.get();
 			const float gain = (q_cap > FLT_EPSILON && qbar > q_cap) ? (q_cap / qbar) : 1.f;
+
 			// Landing regime (_dst_mode_active): surfaces carry the
 			// SLOW pitch trim only, roll stays fan-owned.
 			// Seven ladders bracketed this design:
@@ -1092,7 +1093,7 @@ void Tiltrotor::fill_actuator_outputs()
 			if (_dst_mode_active) {
 				const hrt_abstime now_lpf = hrt_absolute_time();
 				const float dt_lpf = math::constrain(
-						(now_lpf - _elev_trim_last_us) * 1e-6f, 0.f, 0.1f);
+							     (now_lpf - _elev_trim_last_us) * 1e-6f, 0.f, 0.1f);
 				_elev_trim_last_us = now_lpf;
 				const float alpha_lpf = dt_lpf / (0.5f + dt_lpf);
 				_elev_trim_state += alpha_lpf
