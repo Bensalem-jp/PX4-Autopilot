@@ -184,9 +184,11 @@ TEST(PitchQuietGateTest, OneNoisySampleRestartsTheWindow)
 
 TEST(PitchQuietGateTest, NonFiniteInputsAreNotQuiet)
 {
-	for (const Segment &bad : {Segment{3.0, 15.f, 0.35f, NAN, 5.f, 0.0},
-				   Segment{3.0, 15.f, 0.35f, 1.f, NAN, 0.0},
-				   Segment{3.0, NAN, 0.35f, 1.f, 5.f, 0.0}}) {
+	for (const Segment &bad : {
+		     Segment{3.0, 15.f, 0.35f, NAN, 5.f, 0.0},
+		     Segment{3.0, 15.f, 0.35f, 1.f, NAN, 0.0},
+		     Segment{3.0, NAN, 0.35f, 1.f, 5.f, 0.0}
+	     }) {
 		PitchQuietGate gate;
 		EXPECT_LT(firstPass(gate, {kRinging, bad}), 0.0);
 	}
