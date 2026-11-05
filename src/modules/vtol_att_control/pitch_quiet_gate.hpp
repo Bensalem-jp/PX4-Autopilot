@@ -77,6 +77,9 @@ public:
 	/** Forget the quiet history (front-transition start). */
 	void reset() { _quiet_since = 0; }
 
+	/** True while a window is running (read-only; used by tests). */
+	bool windowOpen() const { return _quiet_since != 0; }
+
 	/**
 	 * P1 exit decision for one controller cycle; call it on every P1 cycle.
 	 *

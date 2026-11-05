@@ -55,6 +55,7 @@ class Tiltrotor : public VtolType
 {
 
 public:
+	friend class TiltrotorPqGateTest; // module-level test of the P1 gate reset (no runtime effect)
 
 	Tiltrotor(VtolAttitudeControl *_att_controller);
 	~Tiltrotor() override = default;
