@@ -309,7 +309,7 @@ void Tiltrotor::update_vtol_state()
 		case vtol_mode::MC_MODE:
 			// initialise a front transition
 			resetTransitionStates();
-			_pitch_quiet_since = 0;
+			_pq_gate.reset();
 			_post_bt_mc = false;
 			_bt2mc_pitch_state = NAN;
 			_transition_start_yaw = Eulerf(Quatf(_v_att->q)).psi();
@@ -345,6 +345,12 @@ void Tiltrotor::update_vtol_state()
 			_vtol_mode = vtol_mode::FW_MODE;
 			break;
 		}
+	}
+
+	// The pitch-quiet window belongs to one P1 phase: clear it on every
+	// cycle outside P1 (P1 -> P2, abort or failsafe to MC, any other mode).
+	if (_vtol_mode != vtol_mode::TRANSITION_FRONT_P1) {
+		_pq_gate.reset();
 	}
 
 	// map tiltrotor specific control phases to simple control modes
@@ -1247,9 +1253,6 @@ bool Tiltrotor::isFrontTransitionCompletedBase()
 	// stalled at FW entry. Use the EKF groundspeed as the speed source
 	// when airspeed is unavailable; never advance on time alone (the
 	// VT_TRANS_TIMEOUT quad-chute remains the safety net).
-	const bool minimum_trans_time_elapsed =
-		_time_since_trans_start > getMinimumFrontTransitionTime();
-
 	float speed = NAN;
 
 	// A stale airspeed_validated counts as invalid: on 2026-10-08 the
@@ -1265,37 +1268,26 @@ bool Tiltrotor::isFrontTransitionCompletedBase()
 		speed = sqrtf(_local_pos->vx * _local_pos->vx + _local_pos->vy * _local_pos->vy);
 	}
 
-	const bool speed_condition = PX4_ISFINITE(speed) && speed >= getTransitionAirspeed();
-
-	return minimum_trans_time_elapsed && speed_condition
-	       && _tilt_control >= _param_vt_tilt_trans.get()
-	       && isPitchQuiet();
-}
-
-bool Tiltrotor::isPitchQuiet()
-{
-	const float quiet_window_s = _param_vt_dia_pq_t.get();
-
-	if (quiet_window_s <= 0.f) {
-		return true; // gate disabled (default): stock tiltrotor behavior
-	}
-
-	const Eulerf attitude(Quatf(_v_att->q));
-
 	vehicle_angular_velocity_s angular_velocity{};
 	_angular_velocity_sub.copy(&angular_velocity);
 
-	const bool quiet = fabsf(attitude.theta()) < math::radians(_param_vt_dia_pq_ang.get())
-			   && fabsf(angular_velocity.xyz[1]) < math::radians(_param_vt_dia_pq_rate.get());
+	PitchQuietGate::Inputs in{};
+	in.now = hrt_absolute_time();
+	in.time_since_trans_start_s = _time_since_trans_start;
+	in.speed = speed;
+	in.tilt = _tilt_control;
+	in.pitch_rad = Eulerf(Quatf(_v_att->q)).theta();
+	in.pitch_timestamp = _v_att->timestamp;
+	in.pitch_rate_rad_s = angular_velocity.xyz[1];
+	in.pitch_rate_timestamp = angular_velocity.timestamp;
 
-	if (!quiet) {
-		_pitch_quiet_since = 0;
-		return false;
-	}
+	PitchQuietGate::Params params{};
+	params.min_trans_time_s = getMinimumFrontTransitionTime();
+	params.transition_airspeed = getTransitionAirspeed();
+	params.tilt_trans = _param_vt_tilt_trans.get();
+	params.pq_angle_rad = math::radians(_param_vt_dia_pq_ang.get());
+	params.pq_rate_rad_s = math::radians(_param_vt_dia_pq_rate.get());
+	params.pq_window_s = _param_vt_dia_pq_t.get();
 
-	if (_pitch_quiet_since == 0) {
-		_pitch_quiet_since = hrt_absolute_time();
-	}
-
-	return hrt_elapsed_time(&_pitch_quiet_since) > quiet_window_s * 1_s;
+	return _pq_gate.update(in, params);
 }
