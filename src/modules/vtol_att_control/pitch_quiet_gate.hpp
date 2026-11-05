@@ -50,8 +50,13 @@ public:
 	using Timestamp = uint64_t; // microseconds, same base as hrt_abstime
 
 	// An attitude or rate sample older than this cannot prove "quiet".
-	// 0.1 s is 25 cycles of the 250 Hz attitude loop; a healthy estimator
-	// publishes every cycle.
+	// Rationale: 0.1 s = 25 cycles at an assumed 250 Hz attitude loop and
+	// 10 % of the 1.0 s VT_DIA_PQ_T window, so at most 0.1 s of a window can
+	// rest on an unrefreshed sample. It is an upper bound chosen by that
+	// ratio, NOT derived from a measured publish rate; a tighter rate-derived
+	// bound is possible. A sample stamped in the future counts as fresh.
+	// Speed freshness is NOT governed here: the caller keeps its existing
+	// 1 s airspeed_validated freshness (see Tiltrotor).
 	static constexpr Timestamp kMaxSampleAgeUs = 100000;
 
 	struct Params {
