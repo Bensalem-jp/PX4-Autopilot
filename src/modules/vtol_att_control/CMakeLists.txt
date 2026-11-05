@@ -42,3 +42,5 @@ px4_add_module(
 		standard.cpp
 	)
 
+
+px4_add_unit_gtest(SRC PitchQuietGateTest.cpp)
