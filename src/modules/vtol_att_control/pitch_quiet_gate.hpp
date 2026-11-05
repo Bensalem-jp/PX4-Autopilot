@@ -49,6 +49,11 @@ class PitchQuietGate
 public:
 	using Timestamp = uint64_t; // microseconds, same base as hrt_abstime
 
+	// An attitude or rate sample older than this cannot prove "quiet".
+	// 0.1 s is 25 cycles of the 250 Hz attitude loop; a healthy estimator
+	// publishes every cycle.
+	static constexpr Timestamp kMaxSampleAgeUs = 100000;
+
 	struct Params {
 		float min_trans_time_s;     // getMinimumFrontTransitionTime()
 		float transition_airspeed;  // getTransitionAirspeed()
@@ -73,12 +78,18 @@ public:
 	void reset() { _quiet_since = 0; }
 
 	/**
-	 * P1 exit decision for one controller cycle.
+	 * P1 exit decision for one controller cycle; call it on every P1 cycle.
 	 *
-	 * Behaviour of f959ecd94d, kept exactly: the minimum-time, speed and
-	 * tilt conditions are evaluated first and short-circuit the quiet
-	 * test, so the quiet timer is only updated (and only reset) on cycles
-	 * where all three hold.
+	 * Passes only after quiet, speed, tilt and the minimum transition time
+	 * have ALL held continuously for VT_DIA_PQ_T. Every condition is
+	 * evaluated on every call (no short-circuit), and any failing sample
+	 * restarts the window. Non-finite or stale attitude/rate samples are not
+	 * quiet. VT_DIA_PQ_T <= 0 is the stock tiltrotor decision.
+	 *
+	 * f959ecd94d updated the quiet timer only on cycles where time, speed
+	 * and tilt already held, so a timer started earlier survived non-quiet
+	 * flight below the transition airspeed and the gate could pass on a
+	 * single quiet sample (#394 Step 2, seed 20261106).
 	 */
 	bool update(const Inputs &in, const Params &p)
 	{
@@ -86,18 +97,20 @@ public:
 		const bool speed_condition = std::isfinite(in.speed) && in.speed >= p.transition_airspeed;
 		const bool tilt_condition = in.tilt >= p.tilt_trans;
 
-		if (!(minimum_trans_time_elapsed && speed_condition && tilt_condition)) {
-			return false;
-		}
-
 		if (p.pq_window_s <= 0.f) {
-			return true; // gate disabled: stock tiltrotor behaviour
+			return minimum_trans_time_elapsed && speed_condition && tilt_condition; // stock
 		}
 
-		const bool quiet = fabsf(in.pitch_rad) < p.pq_angle_rad
+		const bool samples_fresh = isFresh(in.now, in.pitch_timestamp)
+					   && isFresh(in.now, in.pitch_rate_timestamp);
+		const bool quiet = samples_fresh
+				   && std::isfinite(in.pitch_rad) && std::isfinite(in.pitch_rate_rad_s)
+				   && fabsf(in.pitch_rad) < p.pq_angle_rad
 				   && fabsf(in.pitch_rate_rad_s) < p.pq_rate_rad_s;
 
-		if (!quiet) {
+		const bool all_conditions = minimum_trans_time_elapsed && speed_condition && tilt_condition && quiet;
+
+		if (!all_conditions) {
 			_quiet_since = 0;
 			return false;
 		}
@@ -111,5 +124,14 @@ public:
 	}
 
 private:
+	static bool isFresh(Timestamp now, Timestamp sample)
+	{
+		if (sample == 0) {
+			return false; // never published
+		}
+
+		return sample >= now || now - sample <= kMaxSampleAgeUs;
+	}
+
 	Timestamp _quiet_since{0};
 };

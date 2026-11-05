@@ -347,6 +347,12 @@ void Tiltrotor::update_vtol_state()
 		}
 	}
 
+	// The pitch-quiet window belongs to one P1 phase: clear it on every
+	// cycle outside P1 (P1 -> P2, abort or failsafe to MC, any other mode).
+	if (_vtol_mode != vtol_mode::TRANSITION_FRONT_P1) {
+		_pq_gate.reset();
+	}
+
 	// map tiltrotor specific control phases to simple control modes
 	switch (_vtol_mode) {
 	case vtol_mode::MC_MODE:
