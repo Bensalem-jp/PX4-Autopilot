@@ -95,6 +95,7 @@ extern "C" __EXPORT int vtol_att_control_main(int argc, char *argv[]);
 class VtolAttitudeControl : public ModuleBase<VtolAttitudeControl>, public ModuleParams, public px4::WorkItem
 {
 public:
+	friend class TiltrotorPqGateTest; // sets the transition request in the module-level gate test
 
 	VtolAttitudeControl();
 	~VtolAttitudeControl() override;

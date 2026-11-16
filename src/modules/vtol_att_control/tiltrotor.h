@@ -41,6 +41,7 @@
 #ifndef TILTROTOR_H
 #define TILTROTOR_H
 #include "diamond_landing_stage.hpp"
+#include "pitch_quiet_gate.hpp"
 #include "vtol_type.h"
 #include <parameters/param.h>
 #include <drivers/drv_hrt.h>
@@ -54,6 +55,7 @@ class Tiltrotor : public VtolType
 {
 
 public:
+	friend class TiltrotorPqGateTest; // module-level test of the P1 gate reset (no runtime effect)
 
 	Tiltrotor(VtolAttitudeControl *_att_controller);
 	~Tiltrotor() override = default;
@@ -108,8 +110,9 @@ private:
 	 * window. VT_DIA_PQ_T <= 0 disables the gate (stock behavior).
 	 * T1 sim finding: advancing tilt at the transition airspeed while the
 	 * pitch loop is still ringing tips the vehicle (run-25 signature).
+	 * The decision lives in PitchQuietGate (pitch_quiet_gate.hpp).
 	 */
-	bool isPitchQuiet();
+	PitchQuietGate _pq_gate;
 
 	// Physical height above ground (pusher_assist source ladder).
 	// The land detector is NOT a ground oracle at high thrust: its
@@ -124,7 +127,6 @@ private:
 	void logDstEvent(hrt_abstime now, const char *event, float qbar, float pitch_demand);
 
 	uORB::Subscription _angular_velocity_sub{ORB_ID(vehicle_angular_velocity)};
-	hrt_abstime _pitch_quiet_since{0};
 	// Heading captured at front-transition start (P1 yaw pin)
 	float _transition_start_yaw{0.f};
 	// Slewed descent wing-unload bias (T10); 0 when inactive.
