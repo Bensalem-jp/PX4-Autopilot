@@ -146,6 +146,68 @@ PARAM_DEFINE_FLOAT(VT_DIA_PQ_RATE, 15.f);
 PARAM_DEFINE_FLOAT(VT_DIA_PQ_T, 0.f);
 
 /**
+ * Diamond P1 exit: opt-in CAS validity
+ *
+ * With FW_USE_AIRSPD=1, the front-transition P1 exit uses the CAS only if
+ * the selector output is fresh (VT_DIA_CAS_TV), the selected raw airspeed
+ * sensor sample is fresh (VT_DIA_CAS_TR, on timestamp_sample), the index is
+ * a physical sensor, the measurement is flagged valid, the values are
+ * finite and, with more than one fresh sensor, they agree
+ * (VT_DIA_CAS_DIS). Otherwise the P1 exit speed is invalid (no groundspeed
+ * fallback) and P1 continues until VT_TRANS_TIMEOUT. A threshold left
+ * unset (0) fails closed. Disabled: legacy speed selection, unchanged.
+ * Latched for the duration of P1.
+ *
+ * @boolean
+ * @group VTOL Attitude Control
+ */
+PARAM_DEFINE_INT32(VT_DIA_CAS_EN, 0);
+
+/**
+ * Diamond P1 exit CAS validity: max airspeed_validated age
+ *
+ * Maximum age of airspeed_validated (the selector cycle time), and maximum
+ * lead of a future-stamped message. 0 = unset (no value adopted): with
+ * VT_DIA_CAS_EN=1 an unset value blocks the P1 exit.
+ *
+ * @unit us
+ * @min 0
+ * @max 10000000
+ * @group VTOL Attitude Control
+ */
+PARAM_DEFINE_INT32(VT_DIA_CAS_TV, 0);
+
+/**
+ * Diamond P1 exit CAS validity: max raw airspeed sample age
+ *
+ * Maximum age of the selected raw airspeed instance's timestamp_sample, and
+ * maximum lead of a future-stamped sample. 0 = unset (no value adopted):
+ * with VT_DIA_CAS_EN=1 an unset value blocks the P1 exit.
+ *
+ * @unit us
+ * @min 0
+ * @max 10000000
+ * @group VTOL Attitude Control
+ */
+PARAM_DEFINE_INT32(VT_DIA_CAS_TR, 0);
+
+/**
+ * Diamond P1 exit CAS validity: max sensor disagreement
+ *
+ * Maximum |IAS| difference between the selected airspeed sensor and any
+ * other fresh, finite airspeed sensor. Needed only with more than one
+ * sensor. 0 = unset (no value adopted): with VT_DIA_CAS_EN=1 and a second
+ * fresh sensor, an unset value blocks the P1 exit.
+ *
+ * @unit m/s
+ * @min 0.0
+ * @max 100.0
+ * @decimal 2
+ * @group VTOL Attitude Control
+ */
+PARAM_DEFINE_FLOAT(VT_DIA_CAS_DIS, 0.f);
+
+/**
  * Diamond wind-hover elevon assist: full-authority dynamic pressure
  *
  * In MC mode and transitions, blend the MC roll/pitch torque demands
