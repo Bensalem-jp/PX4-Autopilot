@@ -121,6 +121,12 @@ Tiltrotor::Tiltrotor(VtolAttitudeControl *attc) :
 	// instead would let an in-flight mode change land the aircraft on a table
 	// that does not match the one it took off on.
 	_wx_mode_at_boot = _param_vt_dia_wx_mode.get();
+
+	// The CAS validity configuration starts from the parameters, not from
+	// the (disabled) default, so no cycle runs on a configuration that was
+	// never read.
+	_cas_cfg_latched = casConfigFromParams();
+	_cas_fw_use_airspd_latched = _param_fw_use_airspd.get();
 }
 
 void

@@ -90,6 +90,10 @@ public:
 
 		_attc->get_control_mode()->flag_armed = true;
 		_attc->get_land_detected()->landed = false;
+
+		// Advertise _raw_pub first so it is uORB instance 0 (sensor index 1)
+		// and _raw2_pub, when used, instance 1.
+		publishRaw(hrt_absolute_time(), kFast);
 	}
 
 	void TearDown() override
@@ -120,6 +124,24 @@ public:
 		_raw_pub.publish(raw);
 	}
 
+	void publishRaw2(hrt_abstime timestamp_sample, float ias)
+	{
+		airspeed_s raw{};
+		raw.timestamp = hrt_absolute_time();
+		raw.timestamp_sample = timestamp_sample;
+		raw.indicated_airspeed_m_s = ias;
+		raw.true_airspeed_m_s = ias;
+		raw.confidence = 1.f;
+		_raw2_pub.publish(raw);
+	}
+
+	// What the selector reports in airspeed_validated (besides its timestamp).
+	struct Selector {
+		float cas{kFast};
+		bool measurement_valid{true};
+		int8_t index{1};
+	};
+
 	// One cycle of inputs: fresh validated CAS, quiet attitude/rate, groundspeed.
 	void feed(hrt_abstime validated_age_us = 0)
 	{
@@ -127,9 +149,9 @@ public:
 
 		airspeed_validated_s *aspd = _attc->get_airspeed();
 		aspd->timestamp = now - validated_age_us;
-		aspd->calibrated_airspeed_m_s = kFast;
-		aspd->airspeed_sensor_measurement_valid = true;
-		aspd->selected_airspeed_index = 1;
+		aspd->calibrated_airspeed_m_s = _selector.cas;
+		aspd->airspeed_sensor_measurement_valid = _selector.measurement_valid;
+		aspd->selected_airspeed_index = _selector.index;
 
 		vehicle_local_position_s *pos = _attc->get_local_pos();
 		pos->v_xy_valid = true;
@@ -181,6 +203,10 @@ public:
 				publishRaw(hrt_absolute_time(), kFast);
 			}
 
+			if (_raw2_ias.has_value) {
+				publishRaw2(hrt_absolute_time(), _raw2_ias.value);
+			}
+
 			feed(validated_age_us);
 			_tr->update_vtol_state();
 
@@ -195,6 +221,12 @@ public:
 	}
 
 	void updateParams() { _tr->parameters_update(); }
+	void setSelector(float cas, bool measurement_valid, int8_t index) { _selector = Selector{cas, measurement_valid, index}; }
+	void setSecondPitot(float ias)
+	{
+		_raw2_ias = OptionalIas{true, ias};
+		publishRaw2(hrt_absolute_time(), ias); // advertise instance 1 before P1
+	}
 	const cas_validity::Config &latched() const { return _tr->_cas_cfg_latched; }
 	cas_validity::Reason reason() const { return _tr->_cas_evaluation.reason; }
 
@@ -202,6 +234,16 @@ public:
 	Tiltrotor *_tr{nullptr};
 	uORB::Publication<vehicle_angular_velocity_s> _rate_pub{ORB_ID(vehicle_angular_velocity)};
 	uORB::PublicationMulti<airspeed_s> _raw_pub{ORB_ID(airspeed)};
+	uORB::PublicationMulti<airspeed_s> _raw2_pub{ORB_ID(airspeed)};
+
+	// A second pitot publishing every runP1() cycle when has_value is set.
+	struct OptionalIas {
+		bool has_value{false};
+		float value{0.f};
+	};
+
+	Selector _selector{};
+	OptionalIas _raw2_ias{};
 };
 
 TEST_F(TiltrotorCasValidityTest, DefaultsAreDisabledAndUnset)
@@ -300,4 +342,74 @@ TEST_F(TiltrotorCasValidityTest, EnablingDuringP1IsLatched)
 	enterP1();
 	enable(kTv, kTr);
 	EXPECT_FALSE(latched().enabled);
+}
+
+// Sensor health at module level: the airspeed_validated flags are wired.
+TEST_F(TiltrotorCasValidityTest, InvalidMeasurementFlagBlocks)
+{
+	enable(kTv, kTr);
+	setSelector(kFast, false, 1);
+	enterP1();
+	EXPECT_FALSE(runP1(2000000, true));
+	EXPECT_EQ(reason(), cas_validity::Reason::MeasurementInvalid);
+}
+
+TEST_F(TiltrotorCasValidityTest, GroundspeedMinusWindIndexBlocks)
+{
+	enable(kTv, kTr);
+	setSelector(kFast, true, 0);
+	enterP1();
+	EXPECT_FALSE(runP1(2000000, true));
+	EXPECT_EQ(reason(), cas_validity::Reason::IndexNotSensor);
+}
+
+TEST_F(TiltrotorCasValidityTest, NonFiniteCasBlocks)
+{
+	enable(kTv, kTr);
+	setSelector(NAN, true, 1);
+	enterP1();
+	EXPECT_FALSE(runP1(2000000, true));
+	EXPECT_EQ(reason(), cas_validity::Reason::NonFinite);
+}
+
+// Two pitots (uORB instances 0 and 1).
+TEST_F(TiltrotorCasValidityTest, DisagreeingSecondPitotBlocks)
+{
+	enable(kTv, kTr);
+	setParam("VT_DIA_CAS_DIS", 1.5f);
+	updateParams();
+	setSecondPitot(kFast + 5.f);
+	enterP1();
+	EXPECT_FALSE(runP1(2000000, true));
+	EXPECT_EQ(reason(), cas_validity::Reason::Disagreement);
+}
+
+TEST_F(TiltrotorCasValidityTest, AgreeingSecondPitotCompletesP1)
+{
+	enable(kTv, kTr);
+	setParam("VT_DIA_CAS_DIS", 1.5f);
+	updateParams();
+	setSecondPitot(kFast + 1.f);
+	enterP1();
+	EXPECT_TRUE(runP1(2000000, true));
+}
+
+TEST_F(TiltrotorCasValidityTest, SecondPitotWithoutDisagreementThresholdBlocks)
+{
+	enable(kTv, kTr);
+	setSecondPitot(kFast);
+	enterP1();
+	EXPECT_FALSE(runP1(2000000, true));
+	EXPECT_EQ(reason(), cas_validity::Reason::ThresholdUnset);
+}
+
+// Index 2 reads uORB instance 1: the second pitot alone is fresh.
+TEST_F(TiltrotorCasValidityTest, IndexTwoReadsTheSecondInstance)
+{
+	enable(kTv, kTr);
+	setSelector(kFast, true, 2);
+	publishRaw(hrt_absolute_time(), kFast); // instance 0 then stops
+	setSecondPitot(kFast);
+	enterP1();
+	EXPECT_TRUE(runP1(2000000, false));
 }
