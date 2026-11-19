@@ -96,6 +96,7 @@ class VtolAttitudeControl : public ModuleBase<VtolAttitudeControl>, public Modul
 {
 public:
 	friend class TiltrotorPqGateTest; // sets the transition request in the module-level gate test
+	friend class TiltrotorCasValidityTest; // sets the transition request in the module-level CAS validity test
 
 	VtolAttitudeControl();
 	~VtolAttitudeControl() override;
