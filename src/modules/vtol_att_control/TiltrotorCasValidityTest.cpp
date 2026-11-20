@@ -417,7 +417,7 @@ TEST_F(TiltrotorCasValidityTest, IndexTwoReadsTheSecondInstance)
 // CE MED-2 at module level: one invalid-flag cycle mid-window.
 TEST_F(TiltrotorCasValidityTest, HoldBridgesOneBadCycleOnlyWhenSet)
 {
-	for (const int32_t hold_us : {0, 60000}) {
+	for (const int32_t hold_us : {0, 150000}) {
 		enable(kTv, kTr);
 		setInt("VT_DIA_CAS_HLD", hold_us);
 		updateParams();
@@ -438,4 +438,16 @@ TEST_F(TiltrotorCasValidityTest, HoldBridgesOneBadCycleOnlyWhenSet)
 			EXPECT_GT(elapsed, 1450000u) << "hold " << hold_us; // window restarted after 0.5 s
 		}
 	}
+}
+
+// The hold keeps the window open but P1 never completes on a held (invalid) CAS.
+TEST_F(TiltrotorCasValidityTest, HoldNeverCompletesP1OnAnUnusableCas)
+{
+	enable(kTv, kTr);
+	setInt("VT_DIA_CAS_HLD", 150000);
+	updateParams();
+	enterP1();
+	EXPECT_FALSE(runP1(980000, true));
+	setSelector(kFast, false, 1); // invalid from here on
+	EXPECT_FALSE(runP1(1500000, true));
 }

@@ -79,15 +79,6 @@ private:
 	bool _boot_weather_mode_latched{false};
 
 	DEFINE_PARAMETERS_CUSTOM_PARENT(HealthAndArmingCheckBase,
-					(ParamInt<px4::params::VT_DIA_WX_MODE>) _param_vt_dia_wx_mode,
-					(ParamBool<px4::params::VT_DIA_CAS_EN>) _param_vt_dia_cas_en,
-					(ParamInt<px4::params::VT_DIA_CAS_TV>) _param_vt_dia_cas_tv,
-					(ParamInt<px4::params::VT_DIA_CAS_TR>) _param_vt_dia_cas_tr,
-					(ParamFloat<px4::params::VT_DIA_CAS_DIS>) _param_vt_dia_cas_dis,
-					(ParamInt<px4::params::VT_DIA_CAS_HLD>) _param_vt_dia_cas_hld,
-					(ParamFloat<px4::params::VT_DIA_PQ_T>) _param_vt_dia_pq_t,
-					(ParamBool<px4::params::FW_USE_AIRSPD>) _param_fw_use_airspd,
-					(ParamInt<px4::params::ASPD_PRIMARY>) _param_aspd_primary,
-					(ParamInt<px4::params::SYS_HAS_NUM_ASPD>) _param_sys_has_num_aspd
+					(ParamInt<px4::params::VT_DIA_WX_MODE>) _param_vt_dia_wx_mode
 				       )
 };

@@ -61,7 +61,9 @@ class VtolCasArmingCheckTest : public ::testing::Test
 public:
 	static constexpr int32_t kTv = 137000;
 	static constexpr int32_t kTr = 310000;
-	static constexpr hrt_abstime kSelectorPeriodUs = 100000; // the PX4 airspeed_selector schedule
+	// Test publish period, shorter than the PX4 selector's 100 ms to leave
+	// wall-clock margin below T_V (137 ms) on a loaded host.
+	static constexpr hrt_abstime kSelectorPeriodUs = 50000;
 
 	void SetUp() override
 	{
@@ -180,7 +182,7 @@ TEST_F(VtolCasArmingCheckTest, UnhealthySensorRefuses)
 
 TEST_F(VtolCasArmingCheckTest, ThresholdNotAboveTheSelectorIntervalRefuses)
 {
-	configure(static_cast<int32_t>(kSelectorPeriodUs) - 30000, kTr); // T_V below the measured interval
+	configure(static_cast<int32_t>(kSelectorPeriodUs) - 20000, kTr); // T_V below the measured interval
 	EXPECT_FALSE(runChecks(5));
 }
 

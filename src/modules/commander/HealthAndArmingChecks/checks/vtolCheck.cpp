@@ -75,6 +75,33 @@ void VtolChecks::checkWeatherModeUnchanged(const Context &context, Report &repor
 	}
 }
 
+// The CAS validity parameters live in vtol_att_control, airspeed_selector,
+// sensors and fw_att_control; read them by name so this check builds on every
+// target. A missing parameter reads as the fallback (VT_DIA_CAS_EN 0: off).
+static int32_t paramInt(const char *name, int32_t fallback)
+{
+	int32_t value = fallback;
+	const param_t handle = param_find(name);
+
+	if (handle != PARAM_INVALID) {
+		param_get(handle, &value);
+	}
+
+	return value;
+}
+
+static float paramFloat(const char *name, float fallback)
+{
+	float value = fallback;
+	const param_t handle = param_find(name);
+
+	if (handle != PARAM_INVALID) {
+		param_get(handle, &value);
+	}
+
+	return value;
+}
+
 // The interval maximum is kept over two consecutive windows of this length,
 // so an old long interval ages out (bookkeeping, not a threshold).
 static constexpr hrt_abstime kSelectorIntervalWindowUs = 10_s;
@@ -119,15 +146,15 @@ void VtolChecks::checkCasValidity(const Context &context, Report &reporter)
 	}
 
 	cas_validity::ArmingInputs in{};
-	in.cfg.enabled = _param_vt_dia_cas_en.get();
-	in.cfg.max_validated_age_us = _param_vt_dia_cas_tv.get();
-	in.cfg.max_raw_sample_age_us = _param_vt_dia_cas_tr.get();
-	in.cfg.max_disagreement_m_s = _param_vt_dia_cas_dis.get();
-	in.cfg.max_unusable_hold_us = _param_vt_dia_cas_hld.get();
-	in.fw_use_airspd = _param_fw_use_airspd.get();
-	in.pq_window_s = _param_vt_dia_pq_t.get();
-	in.aspd_primary = _param_aspd_primary.get();
-	in.sys_has_num_aspd = _param_sys_has_num_aspd.get();
+	in.cfg.enabled = paramInt("VT_DIA_CAS_EN", 0) != 0;
+	in.cfg.max_validated_age_us = paramInt("VT_DIA_CAS_TV", 0);
+	in.cfg.max_raw_sample_age_us = paramInt("VT_DIA_CAS_TR", 0);
+	in.cfg.max_disagreement_m_s = paramFloat("VT_DIA_CAS_DIS", 0.f);
+	in.cfg.max_unusable_hold_us = paramInt("VT_DIA_CAS_HLD", 0);
+	in.fw_use_airspd = paramInt("FW_USE_AIRSPD", 0) != 0;
+	in.pq_window_s = paramFloat("VT_DIA_PQ_T", 0.f);
+	in.aspd_primary = paramInt("ASPD_PRIMARY", -1);
+	in.sys_has_num_aspd = paramInt("SYS_HAS_NUM_ASPD", -1);
 	in.max_selector_interval_us = _max_selector_interval_us;
 
 	if (!in.cfg.enabled || !in.fw_use_airspd) {

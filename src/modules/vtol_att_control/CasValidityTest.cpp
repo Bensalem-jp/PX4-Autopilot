@@ -480,7 +480,8 @@ DriveResult driveWithHold(double duration_s, const std::function<Inputs(Timestam
 
 		run.all_nan = run.all_nan && std::isnan(speed);
 
-		if (gate.update(g, params) && !run.passed) {
+		// As Tiltrotor: a held cycle never completes P1.
+		if (gate.update(g, params) && !hold.holding() && !run.passed) {
 			run.passed = true;
 			run.first_pass = t;
 		}
@@ -617,4 +618,25 @@ TEST(CasValidityTest, ArmingCheck)
 	EXPECT_EQ(checkArming(in), kArmSelectorPeriodTooLong);
 	in.max_selector_interval_us = kTv - 1;
 	EXPECT_EQ(checkArming(in), 0);
+}
+
+// A fault just before the window completes: the hold must not let P1 finish on it.
+TEST(CasValidityTest, HoldNeverCompletesP1OnAnUnusableCas)
+{
+	Config cfg = enabledConfig();
+	cfg.max_unusable_hold_us = 60000;
+
+	for (const Timestamp fault : {kT0 + 980000, kT0 + 1000000, kT0 + 1020000}) {
+		const auto make = [fault](Timestamp t) { Inputs in = nominal(t); in.measurement_valid = (t < fault); return in; };
+		EXPECT_FALSE(driveWithHold(3.0, make, cfg).passed) << fault;
+	}
+
+	// Stock path: a held cycle does not pass either.
+	UnusableHold hold;
+	EXPECT_FLOAT_EQ(hold.apply(1000000, Reason::Usable, 15.f, 60000), 15.f);
+	EXPECT_FALSE(hold.holding());
+	EXPECT_FLOAT_EQ(hold.apply(1020000, Reason::MeasurementInvalid, NAN, 60000), 15.f);
+	EXPECT_TRUE(hold.holding());
+	EXPECT_TRUE(std::isnan(hold.apply(1080001, Reason::MeasurementInvalid, NAN, 60000)));
+	EXPECT_FALSE(hold.holding());
 }

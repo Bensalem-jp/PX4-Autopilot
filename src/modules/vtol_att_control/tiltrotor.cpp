@@ -1423,5 +1423,8 @@ bool Tiltrotor::isFrontTransitionCompletedBase()
 	params.pq_rate_rad_s = math::radians(_param_vt_dia_pq_rate.get());
 	params.pq_window_s = _param_vt_dia_pq_t.get();
 
-	return _pq_gate.update(in, params);
+	// The gate runs on every cycle; a held CAS (VT_DIA_CAS_HLD) keeps its
+	// window open but never completes P1: P1 -> P2 needs a usable CAS.
+	const bool gate_passed = _pq_gate.update(in, params);
+	return gate_passed && !_cas_hold.holding();
 }

@@ -364,6 +364,10 @@ inline bool skewWindowAdvisory(const Config &cfg, float pq_window_s)
  * Never bridges ThresholdUnset (configuration, not measurement) and never
  * starts without a usable sample. Unset hold: NaN, the behaviour without
  * hysteresis. reset() at every P1 entry and outside P1.
+ *
+ * A held value only keeps the window open: the caller must not let P1
+ * complete on a held cycle (holding() true), so P1 -> P2 always happens on a
+ * usable CAS.
  */
 class UnusableHold
 {
@@ -372,10 +376,13 @@ public:
 	{
 		_last_usable = 0;
 		_last_speed = NAN;
+		_holding = false;
 	}
 
 	float apply(Timestamp now, Reason reason, float speed, int32_t hold_us)
 	{
+		_holding = false;
+
 		if (reason == Reason::Usable) {
 			_last_usable = now;
 			_last_speed = speed;
@@ -386,12 +393,21 @@ public:
 			return NAN;
 		}
 
-		return (now - _last_usable <= static_cast<Timestamp>(hold_us)) ? _last_speed : NAN;
+		if (now - _last_usable > static_cast<Timestamp>(hold_us)) {
+			return NAN;
+		}
+
+		_holding = true;
+		return _last_speed;
 	}
+
+	/** True if the last apply() returned a held value (the CAS itself is unusable). */
+	bool holding() const { return _holding; }
 
 private:
 	Timestamp _last_usable{0};
 	float _last_speed{NAN};
+	bool _holding{false};
 };
 
 /** Pre-arm failures (CE MED-1 / MED-2), a bit set; 0 = may arm. */
