@@ -42,6 +42,12 @@
 #include "tiltrotor.h"
 #include "vtol_att_control_main.h"
 
+#include <px4_platform_common/events.h>
+
+// Rate limit of the CAS-validity reason event (logging only, not a
+// safety threshold): at most one event per second.
+static constexpr hrt_abstime kCasReasonReportIntervalUs = 1_s;
+
 using namespace matrix;
 
 #define FRONTTRANS_THR_MIN 0.25f
@@ -115,12 +121,143 @@ Tiltrotor::Tiltrotor(VtolAttitudeControl *attc) :
 	// instead would let an in-flight mode change land the aircraft on a table
 	// that does not match the one it took off on.
 	_wx_mode_at_boot = _param_vt_dia_wx_mode.get();
+
+	// The CAS validity configuration starts from the parameters, not from
+	// the (disabled) default, so no cycle runs on a configuration that was
+	// never read.
+	_cas_cfg_latched = casConfigFromParams();
+	_cas_fw_use_airspd_latched = _param_fw_use_airspd.get();
 }
 
 void
 Tiltrotor::parameters_update()
 {
 	VtolType::updateParams();
+
+	// Outside P1 a parameter change applies now; inside P1 it waits for the
+	// next cycle outside P1 (update_vtol_state()).
+	if (_vtol_mode != vtol_mode::TRANSITION_FRONT_P1) {
+		_cas_cfg_latched = casConfigFromParams();
+		_cas_fw_use_airspd_latched = _param_fw_use_airspd.get();
+	}
+
+	reportCasConfiguration();
+}
+
+cas_validity::Config
+Tiltrotor::casConfigFromParams() const
+{
+	cas_validity::Config cfg{};
+	cfg.enabled = _param_vt_dia_cas_en.get();
+	cfg.max_validated_age_us = _param_vt_dia_cas_tv.get();
+	cfg.max_raw_sample_age_us = _param_vt_dia_cas_tr.get();
+	cfg.max_disagreement_m_s = _param_vt_dia_cas_dis.get();
+	cfg.max_unusable_hold_us = _param_vt_dia_cas_hld.get();
+	return cfg;
+}
+
+void
+Tiltrotor::reportCasConfiguration()
+{
+	// Advisory at boot and on every parameter change (not an arming check).
+	const cas_validity::Config cfg = casConfigFromParams();
+
+	int32_t aspd_primary = -1;
+	int32_t sys_has_num_aspd = -1;
+	const param_t primary_handle = param_find("ASPD_PRIMARY");
+	const param_t num_aspd_handle = param_find("SYS_HAS_NUM_ASPD");
+
+	if (primary_handle != PARAM_INVALID) {
+		param_get(primary_handle, &aspd_primary);
+	}
+
+	if (num_aspd_handle != PARAM_INVALID) {
+		param_get(num_aspd_handle, &sys_has_num_aspd);
+	}
+
+	const cas_validity::ConfigStatus status = cas_validity::checkConfiguration(cfg, _param_fw_use_airspd.get(),
+			aspd_primary, sys_has_num_aspd);
+
+	if (status == cas_validity::ConfigStatus::ThresholdUnset) {
+		PX4_WARN("VT_DIA_CAS_EN=1 with a threshold unset: front transition cannot complete");
+		events::send(events::ID("vtol_att_ctrl_cas_cfg_unset"), events::Log::Warning,
+			     "CAS validity enabled with a threshold unset: front transition cannot complete");
+
+	} else if (status == cas_validity::ConfigStatus::NoAirspeedSensor) {
+		PX4_WARN("VT_DIA_CAS_EN=1 and FW_USE_AIRSPD=1 without an airspeed sensor: front transition cannot complete");
+		events::send(events::ID("vtol_att_ctrl_cas_cfg_no_sensor"), events::Log::Warning,
+			     "CAS validity enabled without an airspeed sensor: front transition cannot complete");
+	}
+
+	if (cas_validity::skewWindowAdvisory(cfg, _param_vt_dia_pq_t.get())) {
+		PX4_WARN("VT_DIA_CAS_TV/TR: 2x threshold >= VT_DIA_PQ_T, a frozen future-stamped sample is not excluded");
+		events::send(events::ID("vtol_att_ctrl_cas_cfg_skew"), events::Log::Warning,
+			     "CAS validity: twice a freshness threshold reaches the pitch-quiet window");
+	}
+}
+
+float
+Tiltrotor::selectTransitionSpeed()
+{
+	if (!_cas_cfg_latched.enabled) {
+		// Legacy selection, unchanged (fork f53d473ecf).
+		float speed = NAN;
+
+		// A stale airspeed_validated counts as invalid: on 2026-10-08 the
+		// airspeed_selector died pre-arm and left a finite CAS (-0.27 m/s)
+		// latched, so P2 never fired and the transition timed out.
+		const bool airspeed_fresh = hrt_elapsed_time(&_airspeed_validated->timestamp) <= 1_s;
+
+		if (_param_fw_use_airspd.get() && airspeed_fresh
+		    && PX4_ISFINITE(_airspeed_validated->calibrated_airspeed_m_s)) {
+			speed = _airspeed_validated->calibrated_airspeed_m_s;
+
+		} else if (_local_pos->v_xy_valid) {
+			speed = sqrtf(_local_pos->vx * _local_pos->vx + _local_pos->vy * _local_pos->vy);
+		}
+
+		return speed;
+	}
+
+	cas_validity::Inputs in{};
+	in.now = hrt_absolute_time();
+	in.fw_use_airspd = _cas_fw_use_airspd_latched;
+	in.validated_timestamp = _airspeed_validated->timestamp;
+	in.calibrated_airspeed_m_s = _airspeed_validated->calibrated_airspeed_m_s;
+	in.measurement_valid = _airspeed_validated->airspeed_sensor_measurement_valid;
+	in.selected_index = _airspeed_validated->selected_airspeed_index;
+
+	for (int i = 0; i < cas_validity::kMaxRawInstances; i++) {
+		in.raw[i].present = _airspeed_raw_subs[i].advertised();
+
+		airspeed_s raw{};
+
+		if (in.raw[i].present && _airspeed_raw_subs[i].copy(&raw)) {
+			in.raw[i].timestamp = raw.timestamp;
+			in.raw[i].timestamp_sample = raw.timestamp_sample;
+			in.raw[i].indicated_airspeed_m_s = raw.indicated_airspeed_m_s;
+		}
+	}
+
+	in.v_xy_valid = _local_pos->v_xy_valid;
+	in.vx = _local_pos->vx;
+	in.vy = _local_pos->vy;
+
+	float speed = cas_validity::selectSpeed(in, _cas_cfg_latched, _cas_evaluation);
+
+	if (in.fw_use_airspd) {
+		// Opt-in hysteresis (VT_DIA_CAS_HLD); unset leaves the NaN as is.
+		speed = _cas_hold.apply(in.now, _cas_evaluation.reason, speed, _cas_cfg_latched.max_unusable_hold_us);
+	}
+
+	if (_cas_reporter.shouldReport(in.now, _cas_evaluation.reason, kCasReasonReportIntervalUs)) {
+		PX4_WARN("CAS not usable for the P1 exit, reason %d", static_cast<int>(_cas_evaluation.reason));
+		events::send<uint8_t>(events::ID("vtol_att_ctrl_cas_unusable"), events::Log::Warning,
+				      "CAS not usable for the front-transition P1 exit, reason {1}",
+				      static_cast<uint8_t>(_cas_evaluation.reason));
+	}
+
+	return speed;
 }
 
 void
@@ -310,6 +447,7 @@ void Tiltrotor::update_vtol_state()
 			// initialise a front transition
 			resetTransitionStates();
 			_pq_gate.reset();
+			_cas_hold.reset();
 			_post_bt_mc = false;
 			_bt2mc_pitch_state = NAN;
 			_transition_start_yaw = Eulerf(Quatf(_v_att->q)).psi();
@@ -351,6 +489,12 @@ void Tiltrotor::update_vtol_state()
 	// cycle outside P1 (P1 -> P2, abort or failsafe to MC, any other mode).
 	if (_vtol_mode != vtol_mode::TRANSITION_FRONT_P1) {
 		_pq_gate.reset();
+		_cas_hold.reset();
+
+		// CE411-L2: the CAS validity configuration in force at P1 entry
+		// holds for the whole P1 phase.
+		_cas_cfg_latched = casConfigFromParams();
+		_cas_fw_use_airspd_latched = _param_fw_use_airspd.get();
 	}
 
 	// map tiltrotor specific control phases to simple control modes
@@ -1254,20 +1398,9 @@ bool Tiltrotor::isFrontTransitionCompletedBase()
 	// stalled at FW entry. Use the EKF groundspeed as the speed source
 	// when airspeed is unavailable; never advance on time alone (the
 	// VT_TRANS_TIMEOUT quad-chute remains the safety net).
-	float speed = NAN;
-
-	// A stale airspeed_validated counts as invalid: on 2026-10-08 the
-	// airspeed_selector died pre-arm and left a finite CAS (-0.27 m/s)
-	// latched, so P2 never fired and the transition timed out.
-	const bool airspeed_fresh = hrt_elapsed_time(&_airspeed_validated->timestamp) <= 1_s;
-
-	if (_param_fw_use_airspd.get() && airspeed_fresh
-	    && PX4_ISFINITE(_airspeed_validated->calibrated_airspeed_m_s)) {
-		speed = _airspeed_validated->calibrated_airspeed_m_s;
-
-	} else if (_local_pos->v_xy_valid) {
-		speed = sqrtf(_local_pos->vx * _local_pos->vx + _local_pos->vy * _local_pos->vy);
-	}
+	// VT_DIA_CAS_EN=1 with FW_USE_AIRSPD=1: an unusable CAS gives NaN
+	// (no groundspeed fallback), see selectTransitionSpeed().
+	const float speed = selectTransitionSpeed();
 
 	vehicle_angular_velocity_s angular_velocity{};
 	_angular_velocity_sub.copy(&angular_velocity);
@@ -1290,5 +1423,8 @@ bool Tiltrotor::isFrontTransitionCompletedBase()
 	params.pq_rate_rad_s = math::radians(_param_vt_dia_pq_rate.get());
 	params.pq_window_s = _param_vt_dia_pq_t.get();
 
-	return _pq_gate.update(in, params);
+	// The gate runs on every cycle; a held CAS (VT_DIA_CAS_HLD) keeps its
+	// window open but never completes P1: P1 -> P2 needs a usable CAS.
+	const bool gate_passed = _pq_gate.update(in, params);
+	return gate_passed && !_cas_hold.holding();
 }

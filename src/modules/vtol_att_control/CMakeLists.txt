@@ -44,4 +44,6 @@ px4_add_module(
 
 
 px4_add_unit_gtest(SRC PitchQuietGateTest.cpp)
+px4_add_unit_gtest(SRC CasValidityTest.cpp)
 px4_add_functional_gtest(SRC TiltrotorPqGateTest.cpp LINKLIBS modules__vtol_att_control)
+px4_add_functional_gtest(SRC TiltrotorCasValidityTest.cpp LINKLIBS modules__vtol_att_control)

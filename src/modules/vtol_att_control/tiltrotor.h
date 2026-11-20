@@ -40,6 +40,7 @@
 
 #ifndef TILTROTOR_H
 #define TILTROTOR_H
+#include "cas_validity.hpp"
 #include "diamond_landing_stage.hpp"
 #include "pitch_quiet_gate.hpp"
 #include "vtol_type.h"
@@ -48,6 +49,8 @@
 
 #include <uORB/Publication.hpp>
 #include <uORB/Subscription.hpp>
+#include <uORB/SubscriptionMultiArray.hpp>
+#include <uORB/topics/airspeed.h>
 #include <uORB/topics/tiltrotor_extra_controls.h>
 #include <uORB/topics/vehicle_angular_velocity.h>
 
@@ -56,6 +59,7 @@ class Tiltrotor : public VtolType
 
 public:
 	friend class TiltrotorPqGateTest; // module-level test of the P1 gate reset (no runtime effect)
+	friend class TiltrotorCasValidityTest; // module-level test of the opt-in CAS validity (no runtime effect)
 
 	Tiltrotor(VtolAttitudeControl *_att_controller);
 	~Tiltrotor() override = default;
@@ -113,6 +117,24 @@ private:
 	 * The decision lives in PitchQuietGate (pitch_quiet_gate.hpp).
 	 */
 	PitchQuietGate _pq_gate;
+
+	/**
+	 * Opt-in CAS validity for the P1 exit speed (VT_DIA_CAS_*, isaac #411
+	 * Option A, cas_validity.hpp). Disabled by default: the speed selection
+	 * is then the legacy code, unchanged. The configuration is latched on
+	 * every cycle outside P1 and held for the whole P1 phase (CE411-L2): a
+	 * parameter change during P1 takes effect at the next transition only.
+	 */
+	float selectTransitionSpeed();
+	cas_validity::Config casConfigFromParams() const;
+	void reportCasConfiguration();
+
+	uORB::SubscriptionMultiArray<airspeed_s, cas_validity::kMaxRawInstances> _airspeed_raw_subs{ORB_ID::airspeed};
+	cas_validity::Config _cas_cfg_latched{};
+	bool _cas_fw_use_airspd_latched{false};
+	cas_validity::Evaluation _cas_evaluation{};
+	cas_validity::ReasonReporter _cas_reporter{};
+	cas_validity::UnusableHold _cas_hold{};
 
 	// Physical height above ground (pusher_assist source ladder).
 	// The land detector is NOT a ground oracle at high thrust: its
@@ -196,6 +218,11 @@ private:
 					(ParamFloat<px4::params::VT_DIA_PQ_ANG>) _param_vt_dia_pq_ang,
 					(ParamFloat<px4::params::VT_DIA_PQ_RATE>) _param_vt_dia_pq_rate,
 					(ParamFloat<px4::params::VT_DIA_PQ_T>) _param_vt_dia_pq_t,
+					(ParamBool<px4::params::VT_DIA_CAS_EN>) _param_vt_dia_cas_en,
+					(ParamInt<px4::params::VT_DIA_CAS_TV>) _param_vt_dia_cas_tv,
+					(ParamInt<px4::params::VT_DIA_CAS_TR>) _param_vt_dia_cas_tr,
+					(ParamFloat<px4::params::VT_DIA_CAS_DIS>) _param_vt_dia_cas_dis,
+					(ParamInt<px4::params::VT_DIA_CAS_HLD>) _param_vt_dia_cas_hld,
 					(ParamFloat<px4::params::VT_TILT_MC>) _param_vt_tilt_mc,
 					(ParamFloat<px4::params::VT_TILT_TRANS>) _param_vt_tilt_trans,
 					(ParamFloat<px4::params::VT_TILT_FW>) _param_vt_tilt_fw,

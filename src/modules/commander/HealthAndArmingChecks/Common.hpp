@@ -310,6 +310,7 @@ private:
 
 	friend class HealthAndArmingChecks;
 	friend class ExternalChecks;
+	friend class VtolCasArmingCheckTest; // drives one check cycle in the opt-in CAS validity test
 	FRIEND_TEST(ReporterTest, basic_no_checks);
 	FRIEND_TEST(ReporterTest, basic_fail_all_modes);
 	FRIEND_TEST(ReporterTest, arming_checks_mode_category);
