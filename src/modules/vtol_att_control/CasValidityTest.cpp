@@ -588,6 +588,11 @@ TEST(CasValidityTest, ArmingCheck)
 	in.cfg.max_raw_sample_age_us = 0;
 	EXPECT_TRUE(checkArming(in) & kArmThresholdUnset);
 
+	// CE LOW-1: SYS_HAS_NUM_ASPD > 1 alone (one live instance) also needs the threshold.
+	in = goodArming();
+	in.sys_has_num_aspd = 2;
+	EXPECT_EQ(checkArming(in), kArmDisagreementUnset);
+
 	in = goodArming();
 	in.raw_instances = 2;
 	EXPECT_TRUE(checkArming(in) & kArmDisagreementUnset);
@@ -639,4 +644,72 @@ TEST(CasValidityTest, HoldNeverCompletesP1OnAnUnusableCas)
 	EXPECT_TRUE(hold.holding());
 	EXPECT_TRUE(std::isnan(hold.apply(1080001, Reason::MeasurementInvalid, NAN, 60000)));
 	EXPECT_FALSE(hold.holding());
+}
+
+// Lead decision 2026-11-20 (CE-FORK411b (a)): the hold bridges transient per-sample
+// faults only. Intermittent disagreement or groundspeed-minus-wind fallback cycles
+// break P1 under any hold, even one usable cycle in two.
+TEST(CasValidityTest, HoldNeverBridgesDisagreementOrFallback)
+{
+	const auto disagreeing = [](Timestamp t) {
+		Inputs in = nominal(t);
+		in.raw[1].present = true;
+		in.raw[1].timestamp = t - 20000;
+		in.raw[1].timestamp_sample = t - 40000;
+		in.raw[1].indicated_airspeed_m_s = ((t / kStep) % 2 == 0) ? kCas : kCas + 5.f;
+		return in;
+	};
+	const auto fallback = [](Timestamp t) { Inputs in = nominal(t); in.selected_index = ((t / kStep) % 2 == 0) ? 1 : 0; return in; };
+	const auto no_instance = [](Timestamp t) { Inputs in = nominal(t); in.selected_index = ((t / kStep) % 2 == 0) ? 1 : 2; return in; };
+
+	for (const int32_t hold_us : {0, 20000, 60000, 150000, 10000000}) {
+		Config cfg = enabledConfig();
+		cfg.max_disagreement_m_s = kDisagree;
+		cfg.max_unusable_hold_us = hold_us;
+		EXPECT_FALSE(driveWithHold(3.0, disagreeing, cfg).passed) << hold_us;
+		EXPECT_FALSE(driveWithHold(3.0, fallback, cfg).passed) << hold_us;
+		EXPECT_FALSE(driveWithHold(3.0, no_instance, cfg).passed) << hold_us;
+	}
+
+	// The same duty cycle with a transient fault is still bridged.
+	const auto flicker = [](Timestamp t) { Inputs in = nominal(t); in.measurement_valid = ((t / kStep) % 2 == 0); return in; };
+	Config cfg = enabledConfig();
+	cfg.max_unusable_hold_us = 60000;
+	EXPECT_TRUE(driveWithHold(3.0, flicker, cfg).passed);
+
+	// Direct: a non-bridgeable reason ends the hold, and no later glitch bridges across it.
+	UnusableHold hold;
+	EXPECT_FLOAT_EQ(hold.apply(1000000, Reason::Usable, 15.f, 60000), 15.f);
+	EXPECT_TRUE(std::isnan(hold.apply(1020000, Reason::Disagreement, NAN, 60000)));
+	EXPECT_TRUE(std::isnan(hold.apply(1040000, Reason::MeasurementInvalid, NAN, 60000)));
+	EXPECT_FALSE(hold.holding());
+
+	for (const Reason r : {
+		     Reason::Disagreement, Reason::IndexNotSensor, Reason::IndexNoRawInstance, Reason::ThresholdUnset,
+		     Reason::ValidatedNeverPublished, Reason::RawNeverSampled, Reason::OtherRawNeverSampled
+	     }) {
+		EXPECT_FALSE(UnusableHold::bridgeable(r)) << static_cast<int>(r);
+	}
+
+	for (const Reason r : {
+		     Reason::ValidatedStale, Reason::MeasurementInvalid, Reason::RawStale, Reason::NonFinite,
+		     Reason::RawTimestampInvalid
+	     }) {
+		EXPECT_TRUE(UnusableHold::bridgeable(r)) << static_cast<int>(r);
+	}
+}
+
+// CE LOW-5, fail closed: a present second instance that never stamps its samples blocks.
+TEST(CasValidityTest, UnstampedSecondInstanceBlocks)
+{
+	Config cfg = enabledConfig();
+	cfg.max_disagreement_m_s = kDisagree;
+	expectBlocked([](Timestamp t) {
+		Inputs in = nominal(t);
+		in.raw[1].present = true;
+		in.raw[1].timestamp = t;
+		in.raw[1].timestamp_sample = 0;
+		in.raw[1].indicated_airspeed_m_s = kCas;
+		return in;
+	}, cfg, Reason::OtherRawNeverSampled);
 }

@@ -86,6 +86,7 @@ enum class Reason : uint8_t {
 	NonFinite,               // CAS or selected raw IAS not finite
 	Disagreement,            // another fresh sensor differs by more than allowed
 	RawTimestampInvalid,     // selected raw: publish time 0, sample after publish, or publish time not fresh
+	OtherRawNeverSampled,    // another present instance has timestamp_sample 0 (cannot be cross-checked)
 };
 
 enum class Agreement : uint8_t {
@@ -198,8 +199,19 @@ inline Reason checkDisagreement(const Inputs &in, const Config &cfg, int selecte
 	for (int i = 0; i < kMaxRawInstances; i++) {
 		const RawSample &other = in.raw[i];
 
-		if (i == selected || !other.present || other.timestamp_sample == 0
-		    || !withinAge(in.now, other.timestamp_sample, cfg.max_raw_sample_age_us)
+		if (i == selected || !other.present) {
+			continue;
+		}
+
+		// CE LOW-5, fail closed: a present instance that never stamps its
+		// samples (e.g. the UAVCAN bridge) can never be cross-checked, yet the
+		// pre-arm check counts it as a second pitot. Block instead of
+		// silently dropping the comparison.
+		if (other.timestamp_sample == 0) {
+			return Reason::OtherRawNeverSampled;
+		}
+
+		if (!withinAge(in.now, other.timestamp_sample, cfg.max_raw_sample_age_us)
 		    || !std::isfinite(other.indicated_airspeed_m_s)) {
 			continue;
 		}
@@ -361,8 +373,8 @@ inline bool skewWindowAdvisory(const Config &cfg, float pq_window_s)
  * Config::max_unusable_hold_us. An unusable CAS that follows a usable one by
  * at most the hold time yields the last usable CAS, so one bad cycle does not
  * restart the whole window; past the hold time the speed is NaN again.
- * Never bridges ThresholdUnset (configuration, not measurement) and never
- * starts without a usable sample. Unset hold: NaN, the behaviour without
+ * Bridges only transient per-sample faults (bridgeable()); any other reason
+ * ends the hold. Never starts without a usable sample. Unset hold: NaN, the behaviour without
  * hysteresis. reset() at every P1 entry and outside P1.
  *
  * A held value only keeps the window open: the caller must not let P1
@@ -389,7 +401,13 @@ public:
 			return speed;
 		}
 
-		if (!thresholdSet(hold_us) || reason == Reason::ThresholdUnset || _last_usable == 0 || now < _last_usable) {
+		if (!bridgeable(reason)) {
+			// Not a transient per-sample fault: no hold now, and none across it later.
+			_last_usable = 0;
+			return NAN;
+		}
+
+		if (!thresholdSet(hold_us) || _last_usable == 0 || now < _last_usable) {
 			return NAN;
 		}
 
@@ -399,6 +417,28 @@ public:
 
 		_holding = true;
 		return _last_speed;
+	}
+
+	/**
+	 * Only transient per-sample faults are bridged (lead decision 2026-11-20,
+	 * following CE-FORK411b): a late or invalid sample. Never a disagreement,
+	 * a non-sensor index (groundspeed-minus-wind fallback) or a missing
+	 * instance, an unset threshold, a never-published/never-sampled stream or
+	 * an unverifiable second pitot.
+	 */
+	static bool bridgeable(Reason reason)
+	{
+		switch (reason) {
+		case Reason::ValidatedStale:
+		case Reason::MeasurementInvalid:
+		case Reason::RawStale:
+		case Reason::NonFinite:
+		case Reason::RawTimestampInvalid:
+			return true;
+
+		default:
+			return false;
+		}
 	}
 
 	/** True if the last apply() returned a held value (the CAS itself is unusable). */

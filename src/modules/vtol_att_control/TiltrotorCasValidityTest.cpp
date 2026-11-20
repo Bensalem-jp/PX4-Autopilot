@@ -83,6 +83,7 @@ public:
 		param_reset(param_find("VT_DIA_CAS_TV"));
 		param_reset(param_find("VT_DIA_CAS_TR"));
 		param_reset(param_find("VT_DIA_CAS_DIS"));
+		param_reset(param_find("VT_DIA_CAS_HLD"));
 
 		_attc = new VtolAttitudeControl();
 		_tr = new Tiltrotor(_attc);
@@ -197,6 +198,10 @@ public:
 	{
 		if (fresh_raw) {
 			publishRaw(hrt_absolute_time(), kFast);
+		}
+
+		if (_raw2_ias.has_value) {
+			publishRaw2(hrt_absolute_time(), _raw2_ias.value);
 		}
 
 		feed();
@@ -462,4 +467,34 @@ TEST_F(TiltrotorCasValidityTest, HoldNeverCompletesP1OnAnUnusableCas)
 	EXPECT_FALSE(runP1(980000, true));
 	setSelector(kFast, false, 1); // invalid from here on
 	EXPECT_FALSE(runP1(1500000, true));
+}
+
+// Lead decision 2026-11-20: disagreement and fallback cycles are never bridged.
+TEST_F(TiltrotorCasValidityTest, HoldNeverBridgesDisagreementOrFallback)
+{
+	for (const int8_t bad_index : {int8_t{-2}, int8_t{0}}) { // -2: disagreement cycle, 0: fallback cycle
+		enable(kTv, kTr);
+		setParam("VT_DIA_CAS_DIS", 1.5f);
+		setInt("VT_DIA_CAS_HLD", 150000);
+		updateParams();
+		setSecondPitot(kFast);
+		enterP1();
+
+		const hrt_abstime start = hrt_absolute_time();
+		EXPECT_FALSE(runP1(500000, true));
+
+		if (bad_index == -2) {
+			_raw2_ias.value = kFast + 5.f;
+			stepOnce(true);
+			_raw2_ias.value = kFast;
+
+		} else {
+			setSelector(kFast, true, 0);
+			stepOnce(true);
+			setSelector(kFast, true, 1);
+		}
+
+		EXPECT_TRUE(runP1(2000000, true));
+		EXPECT_GT(hrt_absolute_time() - start, 1450000u) << static_cast<int>(bad_index); // window restarted
+	}
 }
