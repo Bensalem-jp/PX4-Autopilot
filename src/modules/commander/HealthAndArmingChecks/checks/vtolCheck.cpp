@@ -75,9 +75,125 @@ void VtolChecks::checkWeatherModeUnchanged(const Context &context, Report &repor
 	}
 }
 
+// The interval maximum is kept over two consecutive windows of this length,
+// so an old long interval ages out (bookkeeping, not a threshold).
+static constexpr hrt_abstime kSelectorIntervalWindowUs = 10_s;
+
+void VtolChecks::updateSelectorInterval()
+{
+	const uint32_t generation_before = _airspeed_validated_sub.get_last_generation();
+	airspeed_validated_s validated;
+
+	if (!_airspeed_validated_sub.update(&validated)) {
+		return;
+	}
+
+	const uint32_t published = _airspeed_validated_sub.get_last_generation() - generation_before;
+	const hrt_abstime now = hrt_absolute_time();
+
+	// Only a step of exactly one publication is an interval; a skipped
+	// message would read as a long interval and a repeated one as zero.
+	if (published == 1 && _last_validated_timestamp != 0 && validated.timestamp > _last_validated_timestamp) {
+		const hrt_abstime interval = validated.timestamp - _last_validated_timestamp;
+
+		if (_interval_window_start == 0 || now - _interval_window_start > kSelectorIntervalWindowUs) {
+			_interval_window_start = now;
+			_max_selector_interval_us = math::max(_max_interval_in_window_us, interval);
+			_max_interval_in_window_us = interval;
+
+		} else {
+			_max_interval_in_window_us = math::max(_max_interval_in_window_us, interval);
+			_max_selector_interval_us = math::max(_max_selector_interval_us, interval);
+		}
+	}
+
+	_last_validated_timestamp = validated.timestamp;
+}
+
+void VtolChecks::checkCasValidity(const Context &context, Report &reporter)
+{
+	updateSelectorInterval();
+
+	if (!context.status().is_vtol) {
+		return;
+	}
+
+	cas_validity::ArmingInputs in{};
+	in.cfg.enabled = _param_vt_dia_cas_en.get();
+	in.cfg.max_validated_age_us = _param_vt_dia_cas_tv.get();
+	in.cfg.max_raw_sample_age_us = _param_vt_dia_cas_tr.get();
+	in.cfg.max_disagreement_m_s = _param_vt_dia_cas_dis.get();
+	in.cfg.max_unusable_hold_us = _param_vt_dia_cas_hld.get();
+	in.fw_use_airspd = _param_fw_use_airspd.get();
+	in.pq_window_s = _param_vt_dia_pq_t.get();
+	in.aspd_primary = _param_aspd_primary.get();
+	in.sys_has_num_aspd = _param_sys_has_num_aspd.get();
+	in.max_selector_interval_us = _max_selector_interval_us;
+
+	if (!in.cfg.enabled || !in.fw_use_airspd) {
+		return;
+	}
+
+	cas_validity::Inputs now_in{};
+	now_in.now = hrt_absolute_time();
+	now_in.fw_use_airspd = true;
+
+	airspeed_validated_s validated{};
+
+	if (_airspeed_validated_sub.copy(&validated)) {
+		now_in.validated_timestamp = validated.timestamp;
+		now_in.calibrated_airspeed_m_s = validated.calibrated_airspeed_m_s;
+		now_in.measurement_valid = validated.airspeed_sensor_measurement_valid;
+		now_in.selected_index = validated.selected_airspeed_index;
+	}
+
+	for (int i = 0; i < cas_validity::kMaxRawInstances; i++) {
+		now_in.raw[i].present = _airspeed_subs[i].advertised();
+
+		airspeed_s raw{};
+
+		if (now_in.raw[i].present && _airspeed_subs[i].copy(&raw)) {
+			now_in.raw[i].timestamp = raw.timestamp;
+			now_in.raw[i].timestamp_sample = raw.timestamp_sample;
+			now_in.raw[i].indicated_airspeed_m_s = raw.indicated_airspeed_m_s;
+		}
+
+		if (now_in.raw[i].present) {
+			in.raw_instances++;
+		}
+	}
+
+	in.sensor = cas_validity::evaluate(now_in, in.cfg);
+
+	const uint16_t failures = cas_validity::checkArming(in);
+
+	if (failures == 0) {
+		return;
+	}
+
+	/* EVENT
+	 * @description
+	 * VT_DIA_CAS_EN=1 with FW_USE_AIRSPD=1, and the configuration or the airspeed sensor would not let the
+	 * front transition complete safely. Failure bits: 1 threshold unset, 2 disagreement threshold unset,
+	 * 4 2*max(VT_DIA_CAS_TV, VT_DIA_CAS_TR)+VT_DIA_CAS_HLD reaches VT_DIA_PQ_T, 8 no airspeed sensor,
+	 * 16 airspeed sensor unhealthy, 32 selector interval not measured yet, 64 VT_DIA_CAS_TV not above the
+	 * measured airspeed_validated interval.
+	 */
+	reporter.armingCheckFailure<uint16_t>(NavModes::All, health_component_t::differential_pressure,
+					      events::ID("check_vtol_cas_validity"),
+					      events::Log::Error,
+					      "CAS validity for the front transition not satisfied (failure bits {1})", failures);
+
+	if (reporter.mavlink_log_pub()) {
+		mavlink_log_info(reporter.mavlink_log_pub(), "Preflight Fail: CAS validity (bits %u)\t",
+				 static_cast<unsigned>(failures));
+	}
+}
+
 void VtolChecks::checkAndReport(const Context &context, Report &reporter)
 {
 	checkWeatherModeUnchanged(context, reporter);
+	checkCasValidity(context, reporter);
 
 	vtol_vehicle_status_s vtol_vehicle_status;
 

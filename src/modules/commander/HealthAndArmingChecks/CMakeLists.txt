@@ -72,3 +72,7 @@ add_dependencies(health_and_arming_checks mode_util)
 px4_add_functional_gtest(SRC HealthAndArmingChecksTest.cpp
 	LINKLIBS health_and_arming_checks mode_util
 	)
+
+px4_add_functional_gtest(SRC VtolCasArmingCheckTest.cpp
+	LINKLIBS health_and_arming_checks mode_util
+	)

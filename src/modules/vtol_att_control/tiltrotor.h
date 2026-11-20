@@ -134,6 +134,7 @@ private:
 	bool _cas_fw_use_airspd_latched{false};
 	cas_validity::Evaluation _cas_evaluation{};
 	cas_validity::ReasonReporter _cas_reporter{};
+	cas_validity::UnusableHold _cas_hold{};
 
 	// Physical height above ground (pusher_assist source ladder).
 	// The land detector is NOT a ground oracle at high thrust: its
@@ -221,6 +222,7 @@ private:
 					(ParamInt<px4::params::VT_DIA_CAS_TV>) _param_vt_dia_cas_tv,
 					(ParamInt<px4::params::VT_DIA_CAS_TR>) _param_vt_dia_cas_tr,
 					(ParamFloat<px4::params::VT_DIA_CAS_DIS>) _param_vt_dia_cas_dis,
+					(ParamInt<px4::params::VT_DIA_CAS_HLD>) _param_vt_dia_cas_hld,
 					(ParamFloat<px4::params::VT_TILT_MC>) _param_vt_tilt_mc,
 					(ParamFloat<px4::params::VT_TILT_TRANS>) _param_vt_tilt_trans,
 					(ParamFloat<px4::params::VT_TILT_FW>) _param_vt_tilt_fw,

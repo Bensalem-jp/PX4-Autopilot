@@ -35,7 +35,11 @@
 
 #include "../Common.hpp"
 
+#include <modules/vtol_att_control/cas_validity.hpp>
 #include <uORB/Subscription.hpp>
+#include <uORB/SubscriptionMultiArray.hpp>
+#include <uORB/topics/airspeed.h>
+#include <uORB/topics/airspeed_validated.h>
 #include <uORB/topics/vtol_vehicle_status.h>
 
 class VtolChecks : public HealthAndArmingCheckBase
@@ -49,6 +53,24 @@ public:
 private:
 	void checkWeatherModeUnchanged(const Context &context, Report &reporter);
 
+	/**
+	 * Opt-in CAS validity (VT_DIA_CAS_EN=1 with FW_USE_AIRSPD=1) pre-arm
+	 * check (CE MED-1 / MED-2): thresholds set, 2 * max(T) + hold below
+	 * VT_DIA_PQ_T, a healthy airspeed sensor now, and VT_DIA_CAS_TV above the
+	 * measured airspeed_validated publish interval.
+	 */
+	void checkCasValidity(const Context &context, Report &reporter);
+
+	/** Track the longest airspeed_validated publish interval (one-message steps only). */
+	void updateSelectorInterval();
+
+	uORB::Subscription _airspeed_validated_sub{ORB_ID(airspeed_validated)};
+	uORB::SubscriptionMultiArray<airspeed_s, cas_validity::kMaxRawInstances> _airspeed_subs{ORB_ID::airspeed};
+	hrt_abstime _last_validated_timestamp{0};
+	hrt_abstime _max_selector_interval_us{0};
+	hrt_abstime _interval_window_start{0};
+	hrt_abstime _max_interval_in_window_us{0};
+
 	uORB::Subscription _vtol_vehicle_status_sub{ORB_ID(vtol_vehicle_status)};
 
 	// VT_DIA_WX_MODE as it was the first time this check ran, which is the value
@@ -57,6 +79,15 @@ private:
 	bool _boot_weather_mode_latched{false};
 
 	DEFINE_PARAMETERS_CUSTOM_PARENT(HealthAndArmingCheckBase,
-					(ParamInt<px4::params::VT_DIA_WX_MODE>) _param_vt_dia_wx_mode
+					(ParamInt<px4::params::VT_DIA_WX_MODE>) _param_vt_dia_wx_mode,
+					(ParamBool<px4::params::VT_DIA_CAS_EN>) _param_vt_dia_cas_en,
+					(ParamInt<px4::params::VT_DIA_CAS_TV>) _param_vt_dia_cas_tv,
+					(ParamInt<px4::params::VT_DIA_CAS_TR>) _param_vt_dia_cas_tr,
+					(ParamFloat<px4::params::VT_DIA_CAS_DIS>) _param_vt_dia_cas_dis,
+					(ParamInt<px4::params::VT_DIA_CAS_HLD>) _param_vt_dia_cas_hld,
+					(ParamFloat<px4::params::VT_DIA_PQ_T>) _param_vt_dia_pq_t,
+					(ParamBool<px4::params::FW_USE_AIRSPD>) _param_fw_use_airspd,
+					(ParamInt<px4::params::ASPD_PRIMARY>) _param_aspd_primary,
+					(ParamInt<px4::params::SYS_HAS_NUM_ASPD>) _param_sys_has_num_aspd
 				       )
 };

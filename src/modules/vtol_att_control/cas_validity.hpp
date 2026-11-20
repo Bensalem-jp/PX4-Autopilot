@@ -85,6 +85,7 @@ enum class Reason : uint8_t {
 	RawStale,                // selected raw sample age > max_raw_sample_age_us
 	NonFinite,               // CAS or selected raw IAS not finite
 	Disagreement,            // another fresh sensor differs by more than allowed
+	RawTimestampInvalid,     // selected raw: publish time 0, sample after publish, or publish time not fresh
 };
 
 enum class Agreement : uint8_t {
@@ -106,10 +107,15 @@ struct Config {
 	int32_t max_validated_age_us{0};   // T_V: now - airspeed_validated.timestamp
 	int32_t max_raw_sample_age_us{0};  // T_R: now - airspeed[index-1].timestamp_sample
 	float max_disagreement_m_s{0.f};   // |IAS_selected - IAS_other|; needed only with > 1 fresh sensor
+	// Hysteresis (CE MED-2): an unusable CAS within this time of the last
+	// usable one keeps the last usable value (UnusableHold). <= 0 = unset:
+	// no hold, every unusable cycle restarts the window.
+	int32_t max_unusable_hold_us{0};
 };
 
 struct RawSample {
 	bool present{false};           // instance exists (subscription advertised)
+	Timestamp timestamp{0};        // publish time
 	Timestamp timestamp_sample{0};
 	float indicated_airspeed_m_s{NAN};
 };
@@ -262,6 +268,14 @@ inline Evaluation evaluate(const Inputs &in, const Config &cfg)
 		return result;
 	}
 
+	// The sample cannot be taken after it was published, and the publish
+	// time obeys the same freshness bound as the sample.
+	if (raw.timestamp == 0 || raw.timestamp_sample > raw.timestamp
+	    || !withinAge(in.now, raw.timestamp, cfg.max_raw_sample_age_us)) {
+		result.reason = Reason::RawTimestampInvalid;
+		return result;
+	}
+
 	if (!std::isfinite(in.calibrated_airspeed_m_s) || !std::isfinite(raw.indicated_airspeed_m_s)) {
 		result.reason = Reason::NonFinite;
 		return result;
@@ -319,13 +333,13 @@ inline ConfigStatus checkConfiguration(const Config &cfg, bool fw_use_airspd, in
 }
 
 /**
- * Skew/window advisory (CE411-L7). A frozen sample stamped in the future
- * stays fresh for up to 2 * T of wall time (withinAge). If 2 * T_V or
- * 2 * T_R reaches the VT_DIA_PQ_T window, such a sample alone could complete
- * the window; with the stock path (window <= 0) one fresh cycle is enough.
- * Advisory only: it does not block, it tells the operator the chosen
- * thresholds do not exclude that case. False when disabled or unset (the
- * unset case is reported by checkConfiguration()).
+ * Skew/window check (CE411-L7, CE MED-1). A frozen sample stamped in the
+ * future stays fresh for up to 2 * T of wall time (withinAge), and the hold
+ * (UnusableHold) can bridge a further max_unusable_hold_us. If
+ * 2 * max(T_V, T_R) + hold reaches the VT_DIA_PQ_T window, such a sample
+ * alone could complete the window; with the stock path (window <= 0) one
+ * fresh cycle is enough. False when disabled or unset (the unset case is
+ * reported by checkConfiguration()).
  */
 inline bool skewWindowAdvisory(const Config &cfg, float pq_window_s)
 {
@@ -337,7 +351,112 @@ inline bool skewWindowAdvisory(const Config &cfg, float pq_window_s)
 				 0.0;
 	const double t_v_us = static_cast<double>(cfg.max_validated_age_us);
 	const double t_r_us = static_cast<double>(cfg.max_raw_sample_age_us);
-	return 2.0 * t_v_us >= window_us || 2.0 * t_r_us >= window_us;
+	const double hold_us = thresholdSet(cfg.max_unusable_hold_us) ? static_cast<double>(cfg.max_unusable_hold_us) : 0.0;
+	const double t_max_us = t_v_us > t_r_us ? t_v_us : t_r_us;
+	return 2.0 * t_max_us + hold_us >= window_us;
+}
+
+/**
+ * Hysteresis for the P1 speed (CE MED-2), opt-in through
+ * Config::max_unusable_hold_us. An unusable CAS that follows a usable one by
+ * at most the hold time yields the last usable CAS, so one bad cycle does not
+ * restart the whole window; past the hold time the speed is NaN again.
+ * Never bridges ThresholdUnset (configuration, not measurement) and never
+ * starts without a usable sample. Unset hold: NaN, the behaviour without
+ * hysteresis. reset() at every P1 entry and outside P1.
+ */
+class UnusableHold
+{
+public:
+	void reset()
+	{
+		_last_usable = 0;
+		_last_speed = NAN;
+	}
+
+	float apply(Timestamp now, Reason reason, float speed, int32_t hold_us)
+	{
+		if (reason == Reason::Usable) {
+			_last_usable = now;
+			_last_speed = speed;
+			return speed;
+		}
+
+		if (!thresholdSet(hold_us) || reason == Reason::ThresholdUnset || _last_usable == 0 || now < _last_usable) {
+			return NAN;
+		}
+
+		return (now - _last_usable <= static_cast<Timestamp>(hold_us)) ? _last_speed : NAN;
+	}
+
+private:
+	Timestamp _last_usable{0};
+	float _last_speed{NAN};
+};
+
+/** Pre-arm failures (CE MED-1 / MED-2), a bit set; 0 = may arm. */
+enum ArmingFailure : uint16_t {
+	kArmThresholdUnset = 1 << 0,       // T_V or T_R unset
+	kArmDisagreementUnset = 1 << 1,    // more than one pitot, no disagreement threshold
+	kArmWindowTooShort = 1 << 2,       // 2 * max(T) + hold >= VT_DIA_PQ_T, or stock path
+	kArmNoSensor = 1 << 3,             // no raw airspeed instance, or ASPD_PRIMARY < 1
+	kArmSensorUnhealthy = 1 << 4,      // evaluate() not usable now
+	kArmSelectorPeriodUnknown = 1 << 5, // no airspeed_validated interval measured yet
+	kArmSelectorPeriodTooLong = 1 << 6, // T_V <= the measured selector publish interval
+};
+
+struct ArmingInputs {
+	Config cfg{};
+	bool fw_use_airspd{false};
+	float pq_window_s{0.f};
+	int32_t aspd_primary{0};
+	int32_t sys_has_num_aspd{0};
+	int raw_instances{0};                  // advertised raw airspeed instances
+	Timestamp max_selector_interval_us{0}; // 0 = not measured yet
+	Evaluation sensor{};                   // evaluate() at the time of the check
+};
+
+/**
+ * Pre-arm check. Only with the opt-in enabled and FW_USE_AIRSPD=1 (otherwise
+ * the CAS does not decide P1 and nothing is refused).
+ */
+inline uint16_t checkArming(const ArmingInputs &in)
+{
+	if (!in.cfg.enabled || !in.fw_use_airspd) {
+		return 0;
+	}
+
+	uint16_t failures = 0;
+	const bool thresholds_set = thresholdSet(in.cfg.max_validated_age_us) && thresholdSet(in.cfg.max_raw_sample_age_us);
+
+	if (!thresholds_set) {
+		failures |= kArmThresholdUnset;
+	}
+
+	if ((in.raw_instances > 1 || in.sys_has_num_aspd > 1) && !thresholdSet(in.cfg.max_disagreement_m_s)) {
+		failures |= kArmDisagreementUnset;
+	}
+
+	if (thresholds_set && skewWindowAdvisory(in.cfg, in.pq_window_s)) {
+		failures |= kArmWindowTooShort;
+	}
+
+	if (in.raw_instances < 1 || in.aspd_primary < 1) {
+		failures |= kArmNoSensor;
+
+	} else if (thresholds_set && !in.sensor.usable()) {
+		failures |= kArmSensorUnhealthy;
+	}
+
+	if (in.max_selector_interval_us == 0) {
+		failures |= kArmSelectorPeriodUnknown;
+
+	} else if (thresholds_set
+		   && static_cast<Timestamp>(in.cfg.max_validated_age_us) <= in.max_selector_interval_us) {
+		failures |= kArmSelectorPeriodTooLong;
+	}
+
+	return failures;
 }
 
 /**

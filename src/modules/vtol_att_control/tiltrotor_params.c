@@ -208,6 +208,22 @@ PARAM_DEFINE_INT32(VT_DIA_CAS_TR, 0);
 PARAM_DEFINE_FLOAT(VT_DIA_CAS_DIS, 0.f);
 
 /**
+ * Diamond P1 exit CAS validity: unusable hold (hysteresis)
+ *
+ * An unusable CAS within this time of the last usable one keeps the last
+ * usable value, so a single bad cycle does not restart the VT_DIA_PQ_T
+ * window. Never bridges an unset threshold. 0 = unset (no value adopted):
+ * no hold, every unusable cycle restarts the window. The pre-arm check
+ * requires 2 * max(VT_DIA_CAS_TV, VT_DIA_CAS_TR) + this < VT_DIA_PQ_T.
+ *
+ * @unit us
+ * @min 0
+ * @max 10000000
+ * @group VTOL Attitude Control
+ */
+PARAM_DEFINE_INT32(VT_DIA_CAS_HLD, 0);
+
+/**
  * Diamond wind-hover elevon assist: full-authority dynamic pressure
  *
  * In MC mode and transitions, blend the MC roll/pitch torque demands

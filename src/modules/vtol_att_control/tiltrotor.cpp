@@ -152,6 +152,7 @@ Tiltrotor::casConfigFromParams() const
 	cfg.max_validated_age_us = _param_vt_dia_cas_tv.get();
 	cfg.max_raw_sample_age_us = _param_vt_dia_cas_tr.get();
 	cfg.max_disagreement_m_s = _param_vt_dia_cas_dis.get();
+	cfg.max_unusable_hold_us = _param_vt_dia_cas_hld.get();
 	return cfg;
 }
 
@@ -232,6 +233,7 @@ Tiltrotor::selectTransitionSpeed()
 		airspeed_s raw{};
 
 		if (in.raw[i].present && _airspeed_raw_subs[i].copy(&raw)) {
+			in.raw[i].timestamp = raw.timestamp;
 			in.raw[i].timestamp_sample = raw.timestamp_sample;
 			in.raw[i].indicated_airspeed_m_s = raw.indicated_airspeed_m_s;
 		}
@@ -241,7 +243,12 @@ Tiltrotor::selectTransitionSpeed()
 	in.vx = _local_pos->vx;
 	in.vy = _local_pos->vy;
 
-	const float speed = cas_validity::selectSpeed(in, _cas_cfg_latched, _cas_evaluation);
+	float speed = cas_validity::selectSpeed(in, _cas_cfg_latched, _cas_evaluation);
+
+	if (in.fw_use_airspd) {
+		// Opt-in hysteresis (VT_DIA_CAS_HLD); unset leaves the NaN as is.
+		speed = _cas_hold.apply(in.now, _cas_evaluation.reason, speed, _cas_cfg_latched.max_unusable_hold_us);
+	}
 
 	if (_cas_reporter.shouldReport(in.now, _cas_evaluation.reason, kCasReasonReportIntervalUs)) {
 		PX4_WARN("CAS not usable for the P1 exit, reason %d", static_cast<int>(_cas_evaluation.reason));
@@ -440,6 +447,7 @@ void Tiltrotor::update_vtol_state()
 			// initialise a front transition
 			resetTransitionStates();
 			_pq_gate.reset();
+			_cas_hold.reset();
 			_post_bt_mc = false;
 			_bt2mc_pitch_state = NAN;
 			_transition_start_yaw = Eulerf(Quatf(_v_att->q)).psi();
@@ -481,6 +489,7 @@ void Tiltrotor::update_vtol_state()
 	// cycle outside P1 (P1 -> P2, abort or failsafe to MC, any other mode).
 	if (_vtol_mode != vtol_mode::TRANSITION_FRONT_P1) {
 		_pq_gate.reset();
+		_cas_hold.reset();
 
 		// CE411-L2: the CAS validity configuration in force at P1 entry
 		// holds for the whole P1 phase.

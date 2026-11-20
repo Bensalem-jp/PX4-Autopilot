@@ -83,6 +83,7 @@ Inputs nominal(Timestamp now)
 	in.measurement_valid = true;
 	in.selected_index = 1;
 	in.raw[0].present = true;
+	in.raw[0].timestamp = now - 40000;
 	in.raw[0].timestamp_sample = now - 60000;
 	in.raw[0].indicated_airspeed_m_s = kCas;
 	in.v_xy_valid = true;
@@ -216,7 +217,7 @@ TEST(CasValidityTest, ZeroTimestampsBlock)
 
 TEST(CasValidityTest, SmallFutureSkewPassesLargeSkewBlocks)
 {
-	expectPasses([](Timestamp t) { Inputs in = nominal(t); in.validated_timestamp = t + 5000; in.raw[0].timestamp_sample = t + 5000; return in; },
+	expectPasses([](Timestamp t) { Inputs in = nominal(t); in.validated_timestamp = t + 5000; in.raw[0].timestamp_sample = t + 5000; in.raw[0].timestamp = t + 5000; return in; },
 	enabledConfig());
 	expectBlocked([](Timestamp t) { Inputs in = nominal(t); in.validated_timestamp = t + kTv + 1; return in; },
 	enabledConfig(), Reason::ValidatedStale);
@@ -427,4 +428,193 @@ TEST(CasValidityTest, ReasonReporterIsEdgeTriggeredAndDefersInsteadOfDropping)
 	EXPECT_FALSE(reporter.shouldReport(2 * s + 4, Reason::NonFinite, s));
 	EXPECT_TRUE(reporter.shouldReport(3 * s + 4, Reason::NonFinite, s));
 	EXPECT_FALSE(reporter.shouldReport(3 * s + 5, Reason::NonFinite, s));
+}
+
+// FORK-411b: raw publish time consistency.
+TEST(CasValidityTest, RawTimestampInvalidBlocks)
+{
+	expectBlocked([](Timestamp t) { Inputs in = nominal(t); in.raw[0].timestamp = 0; return in; },
+	enabledConfig(), Reason::RawTimestampInvalid);
+	// sample stamped after its own publication
+	expectBlocked([](Timestamp t) { Inputs in = nominal(t); in.raw[0].timestamp = in.raw[0].timestamp_sample - 1; return in; },
+	enabledConfig(), Reason::RawTimestampInvalid);
+	// publish time beyond T_R in the future (sample itself fresh)
+	expectBlocked([](Timestamp t) { Inputs in = nominal(t); in.raw[0].timestamp = t + kTr + 1; return in; },
+	enabledConfig(), Reason::RawTimestampInvalid);
+	// sample == publish time is fine
+	expectPasses([](Timestamp t) { Inputs in = nominal(t); in.raw[0].timestamp = in.raw[0].timestamp_sample; return in; },
+	enabledConfig());
+}
+
+namespace
+{
+// Drive the gate with the hold in the loop, as Tiltrotor does.
+DriveResult driveWithHold(double duration_s, const std::function<Inputs(Timestamp)> &make, const Config &cfg)
+{
+	PitchQuietGate gate;
+	PitchQuietGate::Params params{};
+	params.min_trans_time_s = 5.f;
+	params.transition_airspeed = 14.f;
+	params.tilt_trans = 0.3f;
+	params.pq_angle_rad = 0.1f;
+	params.pq_rate_rad_s = 0.1f;
+	params.pq_window_s = kWindowS;
+
+	UnusableHold hold;
+	DriveResult run{};
+	const Timestamp end = kT0 + static_cast<Timestamp>(duration_s * 1e6);
+
+	for (Timestamp t = kT0; t <= end; t += kStep) {
+		const Inputs in = make(t);
+		Evaluation evaluation{};
+		const float selected = selectSpeed(in, cfg, evaluation);
+		const float speed = hold.apply(t, evaluation.reason, selected, cfg.max_unusable_hold_us);
+
+		PitchQuietGate::Inputs g{};
+		g.now = t;
+		g.time_since_trans_start_s = 10.f;
+		g.speed = speed;
+		g.tilt = 0.4f;
+		g.pitch_timestamp = t;
+		g.pitch_rate_timestamp = t;
+
+		run.all_nan = run.all_nan && std::isnan(speed);
+
+		if (gate.update(g, params) && !run.passed) {
+			run.passed = true;
+			run.first_pass = t;
+		}
+	}
+
+	return run;
+}
+
+ArmingInputs goodArming()
+{
+	ArmingInputs in{};
+	in.cfg = enabledConfig();
+	in.fw_use_airspd = true;
+	in.pq_window_s = kWindowS;
+	in.aspd_primary = 1;
+	in.sys_has_num_aspd = 1;
+	in.raw_instances = 1;
+	in.max_selector_interval_us = 100000;
+	in.sensor.reason = Reason::Usable;
+	return in;
+}
+} // namespace
+
+// CE MED-2: one bad cycle at 0.5 s.
+TEST(CasValidityTest, HoldBridgesOneBadCycleOnlyWhenSet)
+{
+	const Timestamp glitch = kT0 + 500000;
+	const auto make = [glitch](Timestamp t) { Inputs in = nominal(t); in.measurement_valid = (t != glitch); return in; };
+
+	// Unset: the window restarts after the glitch.
+	const DriveResult unset = driveWithHold(3.0, make, enabledConfig());
+	ASSERT_TRUE(unset.passed);
+	EXPECT_GT(unset.first_pass - glitch, static_cast<Timestamp>(kWindowS * 1e6f));
+
+	// Set (60 ms here, not a proposed value): the window keeps running.
+	Config cfg = enabledConfig();
+	cfg.max_unusable_hold_us = 60000;
+	const DriveResult held = driveWithHold(3.0, make, cfg);
+	ASSERT_TRUE(held.passed);
+	EXPECT_LT(held.first_pass - kT0, static_cast<Timestamp>(kWindowS * 1e6f) + 2 * kStep);
+}
+
+TEST(CasValidityTest, HoldExpiresAndNeverStartsWithoutAUsableSample)
+{
+	Config cfg = enabledConfig();
+	cfg.max_unusable_hold_us = 60000;
+
+	// Pitot dies at 0.5 s (last sample at 0.44 s): the hold ends and P1 never completes.
+	const auto dies = [](Timestamp t) {
+		Inputs in = nominal(t);
+
+		if (t >= kT0 + 500000) {
+			in.raw[0].timestamp_sample = kT0 + 440000;
+			in.raw[0].timestamp = kT0 + 440000;
+		}
+
+		return in;
+	};
+	EXPECT_FALSE(driveWithHold(3.0, dies, cfg).passed);
+
+	// Never usable: nothing to hold.
+	const auto never = [](Timestamp t) { Inputs in = nominal(t); in.measurement_valid = false; return in; };
+	const DriveResult run = driveWithHold(2.0, never, cfg);
+	EXPECT_FALSE(run.passed);
+	EXPECT_TRUE(run.all_nan);
+
+	// Direct: boundary, ThresholdUnset is never bridged, unset hold = no hold.
+	UnusableHold hold;
+	EXPECT_FLOAT_EQ(hold.apply(1000000, Reason::Usable, 15.f, 60000), 15.f);
+	EXPECT_FLOAT_EQ(hold.apply(1060000, Reason::RawStale, NAN, 60000), 15.f);
+	EXPECT_TRUE(std::isnan(hold.apply(1060001, Reason::RawStale, NAN, 60000)));
+	EXPECT_TRUE(std::isnan(hold.apply(1000001, Reason::ThresholdUnset, NAN, 60000)));
+	EXPECT_TRUE(std::isnan(hold.apply(1000001, Reason::RawStale, NAN, 0)));
+	hold.reset();
+	EXPECT_TRUE(std::isnan(hold.apply(1000002, Reason::RawStale, NAN, 60000)));
+}
+
+TEST(CasValidityTest, SkewWindowIncludesTheHold)
+{
+	Config cfg = enabledConfig(); // 2 * 310 ms = 620 ms
+	EXPECT_FALSE(skewWindowAdvisory(cfg, 1.f));
+	cfg.max_unusable_hold_us = 379999;
+	EXPECT_FALSE(skewWindowAdvisory(cfg, 1.f));
+	cfg.max_unusable_hold_us = 380000; // 620 + 380 = 1000 ms
+	EXPECT_TRUE(skewWindowAdvisory(cfg, 1.f));
+}
+
+// CE MED-1 / MED-2: pre-arm refusal.
+TEST(CasValidityTest, ArmingCheck)
+{
+	EXPECT_EQ(checkArming(goodArming()), 0);
+
+	ArmingInputs in = goodArming();
+	in.cfg.enabled = false;
+	in.cfg.max_validated_age_us = 0;
+	EXPECT_EQ(checkArming(in), 0); // disabled: never refuses
+
+	in = goodArming();
+	in.fw_use_airspd = false;
+	in.raw_instances = 0;
+	EXPECT_EQ(checkArming(in), 0); // CAS not used
+
+	in = goodArming();
+	in.cfg.max_raw_sample_age_us = 0;
+	EXPECT_TRUE(checkArming(in) & kArmThresholdUnset);
+
+	in = goodArming();
+	in.raw_instances = 2;
+	EXPECT_TRUE(checkArming(in) & kArmDisagreementUnset);
+	in.cfg.max_disagreement_m_s = kDisagree;
+	EXPECT_EQ(checkArming(in), 0);
+
+	in = goodArming();
+	in.pq_window_s = 0.6f; // 2 * T_R = 620 ms >= window
+	EXPECT_TRUE(checkArming(in) & kArmWindowTooShort);
+	in.pq_window_s = 0.f;   // stock path
+	EXPECT_TRUE(checkArming(in) & kArmWindowTooShort);
+
+	in = goodArming();
+	in.raw_instances = 0;
+	EXPECT_TRUE(checkArming(in) & kArmNoSensor);
+	in = goodArming();
+	in.aspd_primary = 0;
+	EXPECT_TRUE(checkArming(in) & kArmNoSensor);
+
+	in = goodArming();
+	in.sensor.reason = Reason::MeasurementInvalid;
+	EXPECT_EQ(checkArming(in), kArmSensorUnhealthy);
+
+	in = goodArming();
+	in.max_selector_interval_us = 0;
+	EXPECT_EQ(checkArming(in), kArmSelectorPeriodUnknown);
+	in.max_selector_interval_us = kTv;      // T_V must be strictly above
+	EXPECT_EQ(checkArming(in), kArmSelectorPeriodTooLong);
+	in.max_selector_interval_us = kTv - 1;
+	EXPECT_EQ(checkArming(in), 0);
 }

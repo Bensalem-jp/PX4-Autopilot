@@ -413,3 +413,29 @@ TEST_F(TiltrotorCasValidityTest, IndexTwoReadsTheSecondInstance)
 	enterP1();
 	EXPECT_TRUE(runP1(2000000, false));
 }
+
+// CE MED-2 at module level: one invalid-flag cycle mid-window.
+TEST_F(TiltrotorCasValidityTest, HoldBridgesOneBadCycleOnlyWhenSet)
+{
+	for (const int32_t hold_us : {0, 60000}) {
+		enable(kTv, kTr);
+		setInt("VT_DIA_CAS_HLD", hold_us);
+		updateParams();
+		enterP1();
+
+		const hrt_abstime start = hrt_absolute_time();
+		EXPECT_FALSE(runP1(500000, true));
+		setSelector(kFast, false, 1);
+		EXPECT_FALSE(runP1(1, true)); // exactly one cycle
+		setSelector(kFast, true, 1);
+		EXPECT_TRUE(runP1(2000000, true));
+		const hrt_abstime elapsed = hrt_absolute_time() - start;
+
+		if (hold_us > 0) {
+			EXPECT_LT(elapsed, 1300000u) << "hold " << hold_us; // window kept running
+
+		} else {
+			EXPECT_GT(elapsed, 1450000u) << "hold " << hold_us; // window restarted after 0.5 s
+		}
+	}
+}
