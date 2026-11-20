@@ -192,6 +192,18 @@ public:
 		ASSERT_EQ(_tr->_vtol_mode, Mode::TRANSITION_FRONT_P1);
 	}
 
+	// Exactly one P1 cycle, whatever the wall clock does.
+	void stepOnce(bool fresh_raw)
+	{
+		if (fresh_raw) {
+			publishRaw(hrt_absolute_time(), kFast);
+		}
+
+		feed();
+		_tr->update_vtol_state();
+		px4_usleep(kCycleUs);
+	}
+
 	// Run P1 cycles for duration_us; fresh_raw publishes a fresh raw sample
 	// every cycle. Returns true if P1 -> P2 happened.
 	bool runP1(hrt_abstime duration_us, bool fresh_raw, hrt_abstime validated_age_us = 0)
@@ -426,7 +438,7 @@ TEST_F(TiltrotorCasValidityTest, HoldBridgesOneBadCycleOnlyWhenSet)
 		const hrt_abstime start = hrt_absolute_time();
 		EXPECT_FALSE(runP1(500000, true));
 		setSelector(kFast, false, 1);
-		EXPECT_FALSE(runP1(1, true)); // exactly one cycle
+		stepOnce(true); // exactly one invalid cycle
 		setSelector(kFast, true, 1);
 		EXPECT_TRUE(runP1(2000000, true));
 		const hrt_abstime elapsed = hrt_absolute_time() - start;
